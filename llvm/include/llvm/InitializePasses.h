@@ -135,6 +135,7 @@ void initializeInferAddressSpacesPass(PassRegistry&);
 void initializeInstSimplifyLegacyPassPass(PassRegistry &);
 void initializeInstructionCombiningPassPass(PassRegistry&);
 void initializeInstructionSelectPass(PassRegistry&);
+void initializePatternGenPass(PassRegistry&);
 void initializeInterleavedAccessPass(PassRegistry&);
 void initializeInterleavedLoadCombinePass(PassRegistry &);
 void initializeJMCInstrumenterPass(PassRegistry&);

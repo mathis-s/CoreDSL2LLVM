@@ -12,6 +12,7 @@ add_llvm_component_library(LLVMGlobalISel
   IRTranslator.cpp
   InlineAsmLowering.cpp
   InstructionSelect.cpp
+  PatternGen.cpp
   InstructionSelector.cpp
   LegalityPredicates.cpp
   LegalizeMutations.cpp
