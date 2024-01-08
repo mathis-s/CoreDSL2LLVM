@@ -1,0 +1,40 @@
+set(LLVM_LINK_COMPONENTS
+  AllTargetsAsmParsers
+  AllTargetsCodeGens
+  AllTargetsDescs
+  AllTargetsInfos
+  Analysis
+  AsmPrinter
+  CodeGen
+  CodeGenTypes
+  Core
+  IRReader
+  MC
+  MIRParser
+  Remarks
+  ScalarOpts
+  SelectionDAG
+  Support
+  Target
+  TargetParser
+  TransformUtils
+  Vectorize
+  Passes
+  )
+
+include_directories(../../lib/Target/RISCV)
+include_directories(../../build/lib/Target/RISCV)
+
+add_llvm_tool(pattern-gen
+  Main.cpp
+  PatternGen.cpp
+  LLVMOverride.cpp
+  lib/InstrInfo.cpp
+  lib/Parser.cpp
+  lib/TokenStream.cpp
+  DEPENDS
+  intrinsics_gen
+  SUPPORT_PLUGINS
+  )
+
+export_executable_symbols_for_plugins(pattern-gen)
