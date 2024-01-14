@@ -32,6 +32,7 @@
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/Config/config.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/InstrTypes.h"
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/CodeGenCoverage.h"
 #include "llvm/Support/CommandLine.h"
@@ -39,6 +40,7 @@
 #include "llvm/Support/TypeSize.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
+#include "llvm/Transforms/Utils/PredicateInfo.h"
 #include <memory>
 #include <sstream>
 #include <utility>
@@ -104,11 +106,11 @@ enum PatternError {
 std::string Errors[] = {"success",        "multiple blocks", "expected return",
                         "expected store", "load format",     "format"};
 
-static const std::unordered_map<ISD::CondCode, std::string> cmpStr = {
-    {ISD::SETEQ, "SETEQ"},   {ISD::SETNE, "SETNE"},   {ISD::SETLT, "SETLT"},
-    {ISD::SETLE, "SETLE"},   {ISD::SETGT, "SETGT"},   {ISD::SETGE, "SETGE"},
-    {ISD::SETULT, "SETULT"}, {ISD::SETULE, "SETULE"}, {ISD::SETUGT, "SETUGT"},
-    {ISD::SETUGE, "SETUGE"},
+static const std::unordered_map<unsigned, std::string> cmpStr = {
+    {CmpInst::Predicate::ICMP_EQ, "SETEQ"},   {CmpInst::Predicate::ICMP_NE, "SETNE"},   {CmpInst::Predicate::ICMP_SLT, "SETLT"},
+    {CmpInst::Predicate::ICMP_SLE, "SETLE"},   {CmpInst::Predicate::ICMP_SGT, "SETGT"},   {CmpInst::Predicate::ICMP_SGE, "SETGE"},
+    {CmpInst::Predicate::ICMP_ULT, "SETULT"}, {CmpInst::Predicate::ICMP_ULE, "SETULE"}, {CmpInst::Predicate::ICMP_UGT, "SETUGT"},
+    {CmpInst::Predicate::ICMP_UGE, "SETUGE"},
 };
 
 std::string lltToString(LLT Llt) {
@@ -244,9 +246,9 @@ struct BinopNode : public PatternNode {
 };
 
 struct CompareNode : public BinopNode {
-  ISD::CondCode Cond;
+  CmpInst::Predicate Cond;
 
-  CompareNode(LLT Type, ISD::CondCode Cond, std::unique_ptr<PatternNode> Left,
+  CompareNode(LLT Type, CmpInst::Predicate Cond, std::unique_ptr<PatternNode> Left,
               std::unique_ptr<PatternNode> Right)
       : BinopNode(Type, ISD::SETCC, std::move(Left), std::move(Right)),
         Cond(Cond) {}
@@ -425,6 +427,43 @@ struct RegisterNode : public PatternNode {
 };
 
 static std::pair<PatternError, std::unique_ptr<PatternNode>>
+traverse(MachineRegisterInfo &MRI, MachineInstr &Cur);
+
+static std::pair<PatternError, std::unique_ptr<PatternNode>>
+traverseOperand(MachineRegisterInfo &MRI, MachineInstr &Cur, int i) {
+  auto *Op = MRI.getOneDef(Cur.getOperand(1).getReg());
+  if (!Op)
+    return std::make_pair(PatternError::FORMAT, nullptr);
+  auto [Err, Node] = traverse(MRI, *Op->getParent());
+  if (Err)
+    return std::make_pair(Err, nullptr);
+
+  return std::make_pair(PatternError::SUCCESS, std::move(Node));
+}
+
+static std::tuple<PatternError, std::unique_ptr<PatternNode>,
+                  std::unique_ptr<PatternNode>>
+traverseBinopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
+                      int start = 1) {
+  auto *LHS = MRI.getOneDef(Cur.getOperand(start).getReg());
+  if (!LHS)
+    return std::make_tuple(PatternError::FORMAT, nullptr, nullptr);
+  auto *RHS = MRI.getOneDef(Cur.getOperand(start + 1).getReg());
+  if (!RHS)
+    return std::make_tuple(PatternError::FORMAT, nullptr, nullptr);
+
+  auto [ErrL, NodeL] = traverse(MRI, *LHS->getParent());
+  if (ErrL)
+    return std::make_tuple(ErrL, nullptr, nullptr);
+
+  auto [ErrR, NodeR] = traverse(MRI, *RHS->getParent());
+  if (ErrR)
+    return std::make_tuple(ErrR, nullptr, nullptr);
+  return std::make_tuple(PatternError::SUCCESS, std::move(NodeL),
+                         std::move(NodeR));
+}
+
+static std::pair<PatternError, std::unique_ptr<PatternNode>>
 traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   switch (Cur.getOpcode()) {
   case TargetOpcode::G_ADD:
@@ -437,20 +476,10 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_AND:
   case TargetOpcode::G_OR:
   case TargetOpcode::G_XOR: {
-    auto *LHS = MRI.getOneDef(Cur.getOperand(1).getReg());
-    if (!LHS)
-      return std::make_pair(PatternError::FORMAT, nullptr);
-    auto *RHS = MRI.getOneDef(Cur.getOperand(2).getReg());
-    if (!RHS)
-      return std::make_pair(PatternError::FORMAT, nullptr);
 
-    auto [ErrL, NodeL] = traverse(MRI, *LHS->getParent());
-    if (ErrL)
-      return std::make_pair(ErrL, nullptr);
-
-    auto [ErrR, NodeR] = traverse(MRI, *RHS->getParent());
-    if (ErrR)
-      return std::make_pair(ErrR, nullptr);
+    auto [Err, NodeL, NodeR] = traverseBinopOperands(MRI, Cur);
+    if (Err)
+      return std::make_pair(Err, nullptr);
 
     auto Node = std::make_unique<BinopNode>(LLT(MVT::i32), Cur.getOpcode(),
                                             std::move(NodeL), std::move(NodeR));
@@ -479,6 +508,17 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     auto *Imm = Cur.getOperand(1).getCImm();
     return std::make_pair(SUCCESS, std::make_unique<ConstantNode>(
                                        LLT(MVT::i32), Imm->getLimitedValue()));
+  }
+  case TargetOpcode::G_ICMP: {
+    auto Pred = Cur.getOperand(1);
+    auto [Err, NodeL, NodeR] = traverseBinopOperands(MRI, Cur, 2);
+    if (Err)
+      return std::make_pair(Err, nullptr);
+
+    return std::make_pair(SUCCESS,
+                          std::make_unique<CompareNode>(
+                              LLT(MVT::i32), (CmpInst::Predicate)Pred.getPredicate(),
+                              std::move(NodeL), std::move(NodeR)));
   }
   }
 
