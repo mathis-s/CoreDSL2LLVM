@@ -17,6 +17,7 @@
 #include "llvm/CodeGen/GlobalISel/GIMatchTableExecutor.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/GlobalISel/LegalizerHelper.h"
+#include "llvm/CodeGen/GlobalISel/LegalizerInfo.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
@@ -81,6 +82,7 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
   const LLT s32 = LLT::scalar(32);
   const LLT s64 = LLT::scalar(64);
   const LLT s128 = LLT::scalar(128);
+  const LLT v4i8 = LLT::fixed_vector(4, LLT::scalar(8));
 
   const LLT nxv1s1 = LLT::scalable_vector(1, s1);
   const LLT nxv2s1 = LLT::scalable_vector(2, s1);
@@ -133,21 +135,22 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
 
   auto PtrVecTys = {nxv1p0, nxv2p0, nxv4p0, nxv8p0, nxv16p0};
 
-  getActionDefinitionsBuilder({G_ADD, G_SUB})
-      .legalFor({sXLen})
-      .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
-      .customFor(ST.is64Bit(), {s32})
-      .widenScalarToNextPow2(0)
-      .clampScalar(0, sXLen, sXLen);
+  auto &AddSubActions =
+      getActionDefinitionsBuilder({G_ADD, G_SUB})
+          .legalFor({sXLen})
+          .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
+          .customFor(ST.is64Bit(), {s32})
+          .widenScalarToNextPow2(0)
+          .clampScalar(0, sXLen, sXLen);
 
-  getActionDefinitionsBuilder({G_AND, G_OR, G_XOR})
-      .legalFor({sXLen})
-      .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
-      .widenScalarToNextPow2(0)
-      .clampScalar(0, sXLen, sXLen);
+  auto &LogicalActions =
+      getActionDefinitionsBuilder({G_AND, G_OR, G_XOR})
+          .legalFor({sXLen})
+          .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
+          .widenScalarToNextPow2(0)
+          .clampScalar(0, sXLen, sXLen);
 
-  getActionDefinitionsBuilder(
-      {G_UADDE, G_UADDO, G_USUBE, G_USUBO}).lower();
+  getActionDefinitionsBuilder({G_UADDE, G_UADDO, G_USUBE, G_USUBO}).lower();
 
   getActionDefinitionsBuilder({G_SADDO, G_SSUBO}).minScalar(0, sXLen).lower();
 
@@ -326,6 +329,28 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
     StoreActions.legalForTypesWithMemDesc(
         {{s64, p0, s64, getScalarMemAlign(64)}});
   }
+
+  if (ST.hasVendorXCvsimd()) {
+    LoadActions.bitcastIf(LegalityPredicates::typeIs(0, v4i8),
+                               LegalizeMutations::changeTo(0, LLT::scalar(32)));
+    StoreActions.bitcastIf(LegalityPredicates::typeIs(0, v4i8),
+                               LegalizeMutations::changeTo(0, LLT::scalar(32)));
+
+    // allow bitcasting back and forth between vector and scalar
+    getActionDefinitionsBuilder(G_BITCAST)
+        .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(0, s32),
+                                         LegalityPredicates::typeIs(1, v4i8)))
+        .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(1, s32),
+                                         LegalityPredicates::typeIs(0, v4i8)));
+
+    getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor({v4i8});
+
+    ArithActions.legalFor({v4i8});
+  }
+
+  auto &ExtLoadActions =
+      getActionDefinitionsBuilder({G_SEXTLOAD, G_ZEXTLOAD})
+          .legalForTypesWithMemDesc({{s32, p0, s8, 8}, {s32, p0, s16, 16}});
 
   // Vector loads/stores.
   if (ST.hasVInstructions()) {

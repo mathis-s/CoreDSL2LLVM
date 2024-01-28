@@ -12,6 +12,7 @@
 
 #include "RISCVRegisterBankInfo.h"
 #include "MCTargetDesc/RISCVMCTargetDesc.h"
+#include "RISCVRegisterInfo.h"
 #include "RISCVSubtarget.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
