@@ -12,6 +12,7 @@
 
 #include "RISCVRegisterBankInfo.h"
 #include "MCTargetDesc/RISCVMCTargetDesc.h"
+#include "RISCVRegisterInfo.h"
 #include "RISCVSubtarget.h"
 #include "llvm/CodeGen/GlobalISel/GenericMachineInstrs.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -118,6 +119,8 @@ RISCVRegisterBankInfo::getRegBankFromRegClass(const TargetRegisterClass &RC,
   switch (RC.getID()) {
   default:
     llvm_unreachable("Register class not supported");
+  case RISCV::PulpV2RegClassID:
+  case RISCV::PulpV4RegClassID:
   case RISCV::GPRRegClassID:
   case RISCV::GPRF16RegClassID:
   case RISCV::GPRF32RegClassID:

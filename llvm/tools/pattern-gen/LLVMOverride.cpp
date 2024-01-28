@@ -385,12 +385,14 @@ void optimizeModule (llvm::TargetMachine* machine, llvm::Module* module)
     FunctionAnalysisManager FAM;
     CGSCCAnalysisManager CGAM;
     ModuleAnalysisManager MAM;
+    PipelineTuningOptions PTO;
+    PTO.SLPVectorization = true;
 
     // Create the new pass manager builder.
     // Take a look at the PassBuilder constructor parameters for more
     // customization, e.g. specifying a TargetMachine or various debugging
     // options.
-    PassBuilder PB;
+    PassBuilder PB(machine, PTO);
 
     // Register all the basic analyses with the managers.
     PB.registerModuleAnalyses(MAM);
@@ -409,7 +411,7 @@ void optimizeModule (llvm::TargetMachine* machine, llvm::Module* module)
 
 static void set_options()
 {
-    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1", /*"-debug", "-debug-pass=Details"*/};
+    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1", "-debug"};
     cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
 }
 
@@ -446,7 +448,7 @@ int RunPatternGenPipeline(llvm::Module* M, std::string extName)
     std::transform(extName.begin(), extName.end(), extName.begin(), tolower);
     codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
     std::string CPUStr = codegen::getCPUStr(),
-                FeaturesStr = codegen::getFeaturesStr() + "+m,+unaligned-scalar-mem,+" + extName;
+                FeaturesStr = codegen::getFeaturesStr() + "+m,+unaligned-scalar-mem,+xcvalu,+xcvsimd,+" + extName;
 
     TargetOptions Options;
     Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
