@@ -704,3 +704,10 @@ let Predicates = [HasVendorXCVbitmanip, IsRV32] in {
             (CV_BITREV GPR:$rs1, cv_tuimm2:$radix, cv_tuimm5:$pts)>;
   def : Pat<(bitreverse (XLenVT GPR:$rs)), (CV_BITREV GPR:$rs, 0, 0)>;
 }
+
+
+include "XCoreVSIMDInstrFormat.td"
+include "XCoreVSIMD.td"
+include "XCoreVALUInstrFormat.td"
+include "XCoreVALU.td"
+include "XCoreVSIMD_manual.td"
