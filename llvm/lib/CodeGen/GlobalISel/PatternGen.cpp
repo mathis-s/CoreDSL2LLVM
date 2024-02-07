@@ -533,7 +533,7 @@ generatePattern(MachineFunction &MF) {
 
   MachineBasicBlock &BB = *MF.begin();
   MachineRegisterInfo &MRI = MF.getRegInfo();
-  BB.dump();
+  // BB.dump();
 
   auto Instrs = BB.instr_rbegin();
   auto InstrsEnd = BB.instr_rend();
