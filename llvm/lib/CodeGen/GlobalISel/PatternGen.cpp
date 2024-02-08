@@ -34,6 +34,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Support/CodeGenCoverage.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -111,9 +112,15 @@ std::string Errors[] = {"success",        "multiple blocks", "expected return",
                         "expected store", "load format",     "format"};
 
 static const std::unordered_map<unsigned, std::string> cmpStr = {
-    {CmpInst::Predicate::ICMP_EQ, "SETEQ"},   {CmpInst::Predicate::ICMP_NE, "SETNE"},   {CmpInst::Predicate::ICMP_SLT, "SETLT"},
-    {CmpInst::Predicate::ICMP_SLE, "SETLE"},   {CmpInst::Predicate::ICMP_SGT, "SETGT"},   {CmpInst::Predicate::ICMP_SGE, "SETGE"},
-    {CmpInst::Predicate::ICMP_ULT, "SETULT"}, {CmpInst::Predicate::ICMP_ULE, "SETULE"}, {CmpInst::Predicate::ICMP_UGT, "SETUGT"},
+    {CmpInst::Predicate::ICMP_EQ, "SETEQ"},
+    {CmpInst::Predicate::ICMP_NE, "SETNE"},
+    {CmpInst::Predicate::ICMP_SLT, "SETLT"},
+    {CmpInst::Predicate::ICMP_SLE, "SETLE"},
+    {CmpInst::Predicate::ICMP_SGT, "SETGT"},
+    {CmpInst::Predicate::ICMP_SGE, "SETGE"},
+    {CmpInst::Predicate::ICMP_ULT, "SETULT"},
+    {CmpInst::Predicate::ICMP_ULE, "SETULE"},
+    {CmpInst::Predicate::ICMP_UGT, "SETUGT"},
     {CmpInst::Predicate::ICMP_UGE, "SETUGE"},
 };
 
@@ -252,7 +259,8 @@ struct BinopNode : public PatternNode {
 struct CompareNode : public BinopNode {
   CmpInst::Predicate Cond;
 
-  CompareNode(LLT Type, CmpInst::Predicate Cond, std::unique_ptr<PatternNode> Left,
+  CompareNode(LLT Type, CmpInst::Predicate Cond,
+              std::unique_ptr<PatternNode> Left,
               std::unique_ptr<PatternNode> Right)
       : BinopNode(Type, ISD::SETCC, std::move(Left), std::move(Right)),
         Cond(Cond) {}
@@ -382,10 +390,15 @@ struct RegisterNode : public PatternNode {
     if (Size == 2) {
       if (Type.isScalar() && Type.getSizeInBits() == 32)
         return "GPR:$" + RegNames[RegId];
-      // if (type.isFixedVector() && type.getElementCount())
-      //     return "PulpV4:$" + regNames[regId];
-      // if (type == MVT::v2i16)
-      //     return "PulpV2:$" + regNames[regId];
+      if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
+          Type.getElementType().isScalar() &&
+          Type.getElementType().getSizeInBits() == 8)
+        return "PulpV4:$" + RegNames[RegId];
+      if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
+          Type.getElementType().isScalar() &&
+          Type.getElementType().getSizeInBits() == 16)
+        return "PulpV2:$" + RegNames[RegId];
+
       abort();
     }
 
@@ -468,7 +481,9 @@ traverseBinopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
 }
 
 static std::pair<PatternError, std::unique_ptr<PatternNode>>
+
 traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
+
   switch (Cur.getOpcode()) {
   case TargetOpcode::G_ADD:
   case TargetOpcode::G_SUB:
@@ -485,8 +500,27 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     if (Err)
       return std::make_pair(Err, nullptr);
 
-    auto Node = std::make_unique<BinopNode>(LLT(MVT::i32), Cur.getOpcode(),
-                                            std::move(NodeL), std::move(NodeR));
+    auto Node = std::make_unique<BinopNode>(
+        MRI.getType(Cur.getOperand(0).getReg()), Cur.getOpcode(),
+        std::move(NodeL), std::move(NodeR));
+
+    return std::make_pair(SUCCESS, std::move(Node));
+  }
+  case TargetOpcode::G_BITCAST: {
+    // Bitcasts are normally transparent, but they affect the register
+    // type for G_LOAD (handled via fallthrough)
+    auto *Operand = MRI.getOneDef(Cur.getOperand(1).getReg());
+    if (!Operand)
+      return std::make_pair(PatternError::FORMAT_LOAD, nullptr);
+
+    auto [Err, Node] = traverse(MRI, *Operand->getParent());
+    if (Err)
+      return std::make_pair(Err, nullptr);
+
+    // if the bitcasted value is a register access, we need to patch the
+    // register access type
+    if (auto *AsRegNode = llvm::dyn_cast<RegisterNode>(Node.get()))
+      AsRegNode->Type = MRI.getType(Cur.getOperand(0).getReg());
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
@@ -502,16 +536,17 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     if (!MRI.isLiveIn(AddrLI) || !AddrLI.isPhysical())
       return std::make_pair(PatternError::FORMAT_LOAD, nullptr);
 
-    MRI.getType(AddrLI);
-    auto Node = std::make_unique<RegisterNode>(
-        LLT(MVT::i32), AddrLI.asMCReg().id() - 41 - 10, 0, 2);
+    auto Node =
+        std::make_unique<RegisterNode>(MRI.getType(Cur.getOperand(0).getReg()),
+                                       AddrLI.asMCReg().id() - 41 - 10, 0, 2);
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
   case TargetOpcode::G_CONSTANT: {
     auto *Imm = Cur.getOperand(1).getCImm();
     return std::make_pair(SUCCESS, std::make_unique<ConstantNode>(
-                                       LLT(MVT::i32), Imm->getLimitedValue()));
+                                       MRI.getType(Cur.getOperand(0).getReg()),
+                                       Imm->getLimitedValue()));
   }
   case TargetOpcode::G_ICMP: {
     auto Pred = Cur.getOperand(1);
@@ -519,10 +554,10 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     if (Err)
       return std::make_pair(Err, nullptr);
 
-    return std::make_pair(SUCCESS,
-                          std::make_unique<CompareNode>(
-                              LLT(MVT::i32), (CmpInst::Predicate)Pred.getPredicate(),
-                              std::move(NodeL), std::move(NodeR)));
+    return std::make_pair(SUCCESS, std::make_unique<CompareNode>(
+                                       MRI.getType(Cur.getOperand(0).getReg()),
+                                       (CmpInst::Predicate)Pred.getPredicate(),
+                                       std::move(NodeL), std::move(NodeR)));
   }
   }
 
@@ -584,8 +619,20 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   for (int I = 0; I < 4; I++) {
     auto Type = Node->getRegisterTy(I - 1);
     if (Type.isValid()) {
-      TypeStrings[I] = "GPR";
-      InstName += "_S";
+      if (Type.isFixedVector() && Type.getElementType().isScalar() &&
+          Type.getSizeInBits() == 32) {
+        if (Type.getElementType().getSizeInBits() == 8) {
+          TypeStrings[I] = "PulpV4";
+          InstName += "_V4";
+        } else if (Type.getElementType().getSizeInBits() == 16) {
+          TypeStrings[I] = "PulpV2";
+          InstName += "_V2";
+        }
+        else abort();
+      } else {
+        TypeStrings[I] = "GPR";
+        InstName += "_S";
+      }
     }
   }
 
