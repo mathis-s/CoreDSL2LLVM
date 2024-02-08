@@ -387,12 +387,10 @@ void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
   MPM.run(*module, MAM);
 }
 
-static void set_options() {
-  // const char* args[] = {"", "--slp-threshold=-3", "--global-isel",
-  // "--global-isel-abort=1", "-debug"};
-  const char *args[] = {"", "--slp-threshold=-3", "--global-isel",
-                        "--global-isel-abort=1"};
-  cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
+static void set_options()
+{
+    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1"};
+    cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
 }
 
 // Adapted from LLVM llc

@@ -52,7 +52,7 @@ static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
 static cl::opt<std::string>
     Mattr("mattr2", cl::desc("Target specific attributes"),
           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-          cl::init("+m,+unaligned-scalar-mem,+xcvalu,+xcvsimd"));
+          cl::init("+m,+unaligned-scalar-mem,+fast-unaligned-access,+xcvalu,+xcvsimd"));
 
 // Determine optimization level.
 static cl::opt<char>
