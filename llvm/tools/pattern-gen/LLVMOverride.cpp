@@ -60,7 +60,6 @@ more aggressively directly.
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO.h"
-// #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/MC/TargetRegistry.h"
 #include <cctype>
 #define DEBUG_TYPE "isel"
@@ -375,7 +374,7 @@ void optimizeModule(llvm::TargetMachine* machine, llvm::Module* module)
     passes.run(*module);
 }*/
 
-void optimizeModule (llvm::TargetMachine* machine, llvm::Module* module, size_t opt_level)
+void optimizeModule (llvm::TargetMachine* machine, llvm::Module* module, llvm::CodeGenOptLevel optLevel)
 {
     module->setTargetTriple(machine->getTargetTriple().str());
     module->setDataLayout(machine->createDataLayout());
@@ -417,7 +416,7 @@ static void set_options()
 }
 
 // Adapted from LLVM llc
-int RunPatternGenPipeline(llvm::Module* M, std::string mattr, size_t opt_level)
+int RunPatternGenPipeline(llvm::Module* M, std::string mattr, llvm::CodeGenOptLevel optLevel)
 {
     set_options();
 
@@ -467,8 +466,10 @@ int RunPatternGenPipeline(llvm::Module* M, std::string mattr, size_t opt_level)
     //                                llvm::CodeGenOpt::Aggressive);
     // llvm::DebugFlag = true;
     M->setDataLayout(Target->createDataLayout().getStringRepresentation());
-    optimizeModule(Target, M, opt_level);
-    llvm::outs() << *M << "\n";
+    //llvm::outs() << *M << "\n";
+    optimizeModule(Target, M, optLevel);
+    
+    //llvm::outs() << *M << "\n";
     // llvm::DebugFlag = false;
 
     static_assert(sizeof(RISCVTargetMachine) == sizeof(RISCVPatternTargetMachine));
