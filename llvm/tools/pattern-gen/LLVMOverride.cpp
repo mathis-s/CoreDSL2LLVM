@@ -375,11 +375,11 @@ void optimizeModule(llvm::TargetMachine* machine, llvm::Module* module)
     passes.run(*module);
 }*/
 
-void optimizeModule (llvm::TargetMachine* machine, llvm::Module* module)
+void optimizeModule (llvm::TargetMachine* machine, llvm::Module* module, size_t opt_level)
 {
     module->setTargetTriple(machine->getTargetTriple().str());
     module->setDataLayout(machine->createDataLayout());
-    
+
     // Create the analysis managers.
     LoopAnalysisManager LAM;
     FunctionAnalysisManager FAM;
@@ -411,12 +411,13 @@ void optimizeModule (llvm::TargetMachine* machine, llvm::Module* module)
 
 static void set_options()
 {
-    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1", "-debug"};
+    // const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1", "-debug"};
+    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1"};
     cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
 }
 
 // Adapted from LLVM llc
-int RunPatternGenPipeline(llvm::Module* M, std::string extName)
+int RunPatternGenPipeline(llvm::Module* M, std::string mattr, size_t opt_level)
 {
     set_options();
 
@@ -445,10 +446,9 @@ int RunPatternGenPipeline(llvm::Module* M, std::string extName)
     // Load the module to be compiled...
     // SMDiagnostic Err;
     Triple TheTriple("riscv32", "unknown", "linux", "gnu");
-    std::transform(extName.begin(), extName.end(), extName.begin(), tolower);
     codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
     std::string CPUStr = codegen::getCPUStr(),
-                FeaturesStr = codegen::getFeaturesStr() + "+m,+unaligned-scalar-mem,+xcvalu,+xcvsimd,+" + extName;
+                FeaturesStr = codegen::getFeaturesStr() + mattr;
 
     TargetOptions Options;
     Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
@@ -467,7 +467,7 @@ int RunPatternGenPipeline(llvm::Module* M, std::string extName)
     //                                llvm::CodeGenOpt::Aggressive);
     // llvm::DebugFlag = true;
     M->setDataLayout(Target->createDataLayout().getStringRepresentation());
-    optimizeModule(Target, M);
+    optimizeModule(Target, M, opt_level);
     llvm::outs() << *M << "\n";
     // llvm::DebugFlag = false;
 

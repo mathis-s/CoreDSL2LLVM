@@ -31,7 +31,7 @@ static std::string* extName = nullptr;
 using namespace llvm;
 using SVT = llvm::MVT::SimpleValueType;
 
-int GeneratePatterns(llvm::Module* M, std::vector<CDSLInstr> const& instrs, std::ostream& ostream, std::string extName)
+int GeneratePatterns(llvm::Module* M, std::vector<CDSLInstr> const& instrs, std::ostream& ostream, std::string extName, size_t opt_level, std::string mattr)
 {
     // All other code in this file is called during code generation
     // by the LLVM pipeline. We thus "pass" arguments as globals in this TU.
@@ -39,7 +39,7 @@ int GeneratePatterns(llvm::Module* M, std::vector<CDSLInstr> const& instrs, std:
     cdslInstrs = &instrs;
     ::extName = &extName;
 
-    int rv = RunPatternGenPipeline(M, extName);
+    int rv = RunPatternGenPipeline(M, mattr, opt_level);
 
     outStream = nullptr;
     cdslInstrs = nullptr;
