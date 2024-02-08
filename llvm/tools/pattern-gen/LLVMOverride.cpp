@@ -411,7 +411,7 @@ void optimizeModule (llvm::TargetMachine* machine, llvm::Module* module)
 
 static void set_options()
 {
-    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1", "-debug"};
+    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1"};
     cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
 }
 
@@ -448,7 +448,7 @@ int RunPatternGenPipeline(llvm::Module* M, std::string extName)
     std::transform(extName.begin(), extName.end(), extName.begin(), tolower);
     codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
     std::string CPUStr = codegen::getCPUStr(),
-                FeaturesStr = codegen::getFeaturesStr() + "+m,+unaligned-scalar-mem,+xcvalu,+xcvsimd,+" + extName;
+                FeaturesStr = codegen::getFeaturesStr() + "+m,+fast-unaligned-access,+xcvalu,+xcvsimd,+" + extName;
 
     TargetOptions Options;
     Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
