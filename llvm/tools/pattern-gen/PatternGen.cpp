@@ -31,14 +31,14 @@ using namespace llvm;
 using SVT = llvm::MVT::SimpleValueType;
 
 int GeneratePatterns(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
-                     std::ostream &ostream, std::string extName,
+                     std::ostream &ostream, std::ostream &ostreamIR, std::string extName,
                      llvm::CodeGenOptLevel optLevel, std::string mattr) {
   // All other code in this file is called during code generation
   // by the LLVM pipeline. We thus "pass" arguments as globals.
   llvm::PatternGenArgs::OutStream = &ostream;
   llvm::PatternGenArgs::ExtName = &extName;
 
-  int rv = RunPatternGenPipeline(M, mattr, optLevel);
+  int rv = RunPatternGenPipeline(M, mattr, optLevel, ostreamIR);
 
   llvm::PatternGenArgs::OutStream = nullptr;
   llvm::PatternGenArgs::ExtName = nullptr;
