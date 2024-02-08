@@ -20,6 +20,11 @@
 
 namespace llvm {
 
+namespace PatternGenArgs {
+extern std::ostream *OutStream;
+extern std::string *ExtName;
+} // namespace PatternGenArgs
+
 class BlockFrequencyInfo;
 class ProfileSummaryInfo;
 
