@@ -1,60 +1,130 @@
 #include <exception>
 
+#include <cstdio>
+#include <ctype.h>
+#include <filesystem>
+#include <fstream>
 #include <llvm/IR/LLVMContext.h>
+#include <map>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <map>
-#include <ctype.h>
-#include <cstdio>
-#include <fstream>
 #include <tuple>
-#include <memory>
 
-#include "lib/InstrInfo.hpp"
-#include "lib/Parser.hpp"
-#include "lib/TokenStream.hpp"
-#include "lib/Token.hpp"
-#include "lib/Lexer.hpp"
 #include "PatternGen.hpp"
+#include "lib/InstrInfo.hpp"
+#include "lib/Lexer.hpp"
+#include "lib/Parser.hpp"
+#include "lib/Token.hpp"
+#include "lib/TokenStream.hpp"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
+#include "llvm/Support/CodeGen.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
 
-static auto get_out_streams (std::string srcPath)
-{
-    std::string outPath{srcPath};
-    const char type[] = ".core_desc";
-    if (outPath.find(type, outPath.size() - sizeof(type)))
-        outPath = outPath.substr(0, outPath.size() - sizeof(type) + 1);
-    return std::make_tuple(std::ofstream(outPath + "InstrFormat.td"), std::ofstream(outPath + ".td"));
+using namespace llvm;
+
+static cl::OptionCategory ToolOptions("Tool Options");
+static cl::OptionCategory ViewOptions("View Options");
+
+static cl::opt<std::string> InputFilename(cl::Positional,
+                                          cl::desc("<input file>"),
+                                          cl::cat(ToolOptions), cl::init("-"));
+
+static cl::opt<std::string> OutputFilename("o", cl::desc("Output filename"),
+                                           cl::init("-"), cl::cat(ToolOptions),
+                                           cl::value_desc("filename"));
+
+static cl::opt<std::string>
+    InputLanguage("x", cl::desc("Input language ('cdsl' or 'll')"),
+                  cl::cat(ToolOptions));
+
+static cl::opt<bool> Force("f", cl::desc("Ignore parser errors."),
+                           cl::cat(ToolOptions));
+static cl::opt<bool> Skip("s", cl::desc("Skip pattern-gen step."),
+                          cl::cat(ToolOptions));
+
+static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
+                                    cl::cat(ToolOptions), cl::init("Xcvsimd"));
+static cl::opt<std::string>
+    Mattr("mattr2", cl::desc("Target specific attributes"),
+          cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
+          cl::init("+m,+unaligned-scalar-mem,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+
+// Determine optimization level.
+static cl::opt<char>
+    OptLevel("O",
+             cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] "
+                      "(default = '-O2')"),
+             cl::cat(ToolOptions), cl::init('3'));
+
+#include <iostream>
+namespace fs = std::filesystem;
+
+static auto get_out_streams(std::string srcPath, std::string destPath) {
+  fs::path outPath{destPath};
+
+  fs::path inPath{srcPath};
+  fs::path basePath = inPath.parent_path() / inPath.stem();
+
+  std::string newExt = ".td";
+  if (outPath.compare("-") != 0) {
+    basePath = outPath.parent_path() / outPath.stem();
+    newExt = outPath.extension();
+  }
+  // TODO: allow .td in out path
+  std::string irPath = basePath.string() + ".ll";
+  std::string fmtPath = basePath.string() + "InstrFormat" + newExt;
+  std::string patPath = basePath.string() + newExt;
+
+  return std::make_tuple(std::ofstream(irPath), std::ofstream(fmtPath),
+                         std::ofstream(patPath));
 }
 
-int main (int argc, char** argv)
-{
-    if (argc <= 1)
-    {
-        fprintf(stderr, "usage: %s <SOURCE FILE> LLVM-ARGS...\n", argv[0]);
-        return -1;
-    }
+int main(int argc, char **argv) {
+  cl::HideUnrelatedOptions({&ToolOptions, &ViewOptions});
+  cl::ParseCommandLineOptions(argc, argv, "CoreDSL2LLVM Pattern Gen");
+  if (argc <= 1) {
+    fprintf(stderr, "usage: %s <SOURCE FILE> LLVM-ARGS...\n", argv[0]);
+    return -1;
+  }
 
-    const char* srcPath = argv[1];
+  // const char* srcPath = argv[1];
 
-    auto [formatOut, patternOut] = get_out_streams(srcPath);
+  auto [irOut, formatOut, patternOut] =
+      get_out_streams(InputFilename, OutputFilename);
 
-    TokenStream ts(srcPath);
-    llvm::LLVMContext ctx;
-    auto mod = std::make_unique<llvm::Module>("mod", ctx);
-    auto instrs = ParseCoreDSL2(ts, mod.get());
+  TokenStream ts(InputFilename.c_str());
+  LLVMContext ctx;
+  auto mod = std::make_unique<Module>("mod", ctx);
+  auto instrs = ParseCoreDSL2(ts, mod.get());
 
+  if (verifyModule(*mod, &errs()))
+    return -1;
+
+  // TODO: use force
+
+  llvm::CodeGenOptLevel Opt;
+  switch (OptLevel) {
+  case '0':
+    Opt = llvm::CodeGenOptLevel::None;
+    break;
+  case '1':
+    Opt = llvm::CodeGenOptLevel::Less;
+    break;
+  case '2':
+    Opt = llvm::CodeGenOptLevel::Default;
+    break;
+  case '3':
+    Opt = llvm::CodeGenOptLevel::Aggressive;
+    break;
+  }
+
+  if (!Skip) {
     PrintInstrsAsTableGen(instrs, formatOut);
-
-    llvm::outs() << *mod << "\n";
-    if (llvm::verifyModule(*mod, &llvm::errs()))
-        return -1;
-    
-    std::string extName = (argc > 2) ? argv[2] : "Xcvsimd"; 
-
-    GeneratePatterns(mod.get(), instrs, patternOut, extName);
+    GeneratePatterns(mod.get(), instrs, patternOut, irOut, ExtName, Opt, Mattr);
+  }
 }

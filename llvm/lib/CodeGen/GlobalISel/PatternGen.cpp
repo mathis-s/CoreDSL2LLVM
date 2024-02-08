@@ -59,6 +59,10 @@ static cl::opt<std::string>
 static const std::string CoveragePrefix;
 #endif
 
+std::ostream *PatternGenArgs::OutStream = nullptr;
+std::string *PatternGenArgs::ExtName = nullptr;
+
+
 char PatternGen::ID = 0;
 INITIALIZE_PASS_BEGIN(
     PatternGen, DEBUG_TYPE,
@@ -568,7 +572,6 @@ generatePattern(MachineFunction &MF) {
 
   MachineBasicBlock &BB = *MF.begin();
   MachineRegisterInfo &MRI = MF.getRegInfo();
-  BB.dump();
 
   auto Instrs = BB.instr_rbegin();
   auto InstrsEnd = BB.instr_rend();
@@ -644,7 +647,7 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
     }
   InsString = InsString.substr(0, InsString.size() - 2);
 
-  auto &OutStream = llvm::outs();
+  auto &OutStream = *PatternGenArgs::OutStream;
 
   OutStream << "let Predicates = [HasExt"
                "Xcvsimd"
