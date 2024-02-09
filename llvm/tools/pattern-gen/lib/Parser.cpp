@@ -5,6 +5,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -641,6 +642,43 @@ Value gen_ternary(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& buil
     return valTrue;
 }
 
+Value gen_logical(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left,
+                  Value right)
+{
+    (void)right;
+    const auto i1 = llvm::Type::getInt1Ty(func->getContext());
+
+    auto& ctx = func->getContext();
+    llvm::BasicBlock* blockPre = build.GetInsertBlock();
+    llvm::BasicBlock* blockEvalRHS = llvm::BasicBlock::Create(ctx, "logEvalRHS", func);
+    llvm::BasicBlock* blockPost = llvm::BasicBlock::Create(ctx, "logPost", func);
+
+    llvm::BasicBlock* trueBl = blockEvalRHS;
+    llvm::BasicBlock* falseBl = blockPost;
+    if (op == LogicalOR)
+        std::swap(trueBl, falseBl);
+    promote_lvalue(build, left);
+    build.CreateCondBr(build.CreateICmpNE(left.ll, llvm::ConstantInt::get(left.ll->getType(), 0)), trueBl, falseBl);
+
+    build.SetInsertPoint(blockEvalRHS);
+
+    // In the operator table this is handled as a unary op such that we can call ParseExpression
+    // for RHS ourselves here (we may only evaluate RHS if LHS does not short circuit)
+    auto valRight = ParseExpression(ts, func, build);
+    promote_lvalue(build, valRight);
+    auto valRightBool = build.CreateICmpNE(valRight.ll, llvm::ConstantInt::get(valRight.ll->getType(), 0));
+
+    build.CreateBr(blockPost);
+    blockEvalRHS = build.GetInsertBlock();
+    
+    build.SetInsertPoint(blockPost);
+    
+    auto phi = build.CreatePHI(i1, 2);
+    phi->addIncoming(valRightBool, blockEvalRHS);
+    phi->addIncoming(llvm::ConstantInt::get(i1, (op == LogicalOR) ? 1 : 0), blockPre);
+    return Value(phi, false);
+}
+
 struct Operator
 {
     using OpFunc = Value(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left,
@@ -675,8 +713,8 @@ static const Operator precTable[] =
     [BitwiseAND]           = Operator(8,  0, 0, gen_binop),
     [BitwiseOR]            = Operator(10, 0, 0, gen_binop),
     [BitwiseXOR]           = Operator(9,  0, 0, gen_binop),
-    [LogicalAND]           = Operator(12, 0, 0, nullptr),
-    [LogicalOR]            = Operator(13, 0, 0, nullptr),
+    [LogicalAND]           = Operator(12, 0, 1, gen_logical),
+    [LogicalOR]            = Operator(13, 0, 1, gen_logical),
     [Ternary]              = Operator(14, 1, 1, gen_ternary),
     [BitwiseConcat]        = Operator(11, 0, 0, nullptr),
     [Assignment]           = Operator(15, 1, 0, gen_assign),
