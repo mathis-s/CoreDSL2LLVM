@@ -494,7 +494,11 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_UREM:
   case TargetOpcode::G_AND:
   case TargetOpcode::G_OR:
-  case TargetOpcode::G_XOR: {
+  case TargetOpcode::G_XOR:
+  case TargetOpcode::G_SHL:
+  case TargetOpcode::G_LSHR:
+  case TargetOpcode::G_ASHR:
+  {
 
     auto [Err, NodeL, NodeR] = traverseBinopOperands(MRI, Cur);
     if (Err)
