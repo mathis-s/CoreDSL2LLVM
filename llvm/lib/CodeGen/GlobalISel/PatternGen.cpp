@@ -62,7 +62,6 @@ static const std::string CoveragePrefix;
 std::ostream *PatternGenArgs::OutStream = nullptr;
 std::string *PatternGenArgs::ExtName = nullptr;
 
-
 char PatternGen::ID = 0;
 INITIALIZE_PASS_BEGIN(
     PatternGen, DEBUG_TYPE,
@@ -99,13 +98,20 @@ void PatternGen::getAnalysisUsage(AnalysisUsage &AU) const {
   MachineFunctionPass::getAnalysisUsage(AU);
 }
 
-enum PatternError {
+enum PatternErrorT {
   SUCCESS = 0,
   MULTIPLE_BLOCKS,
   FORMAT_RETURN,
   FORMAT_STORE,
   FORMAT_LOAD,
   FORMAT
+};
+struct PatternError {
+  PatternErrorT Type;
+  MachineInstr* Inst;
+  PatternError(PatternErrorT Type) : Type(Type), Inst(nullptr) {}
+  PatternError(PatternErrorT Type, MachineInstr* Inst) : Type(Type), Inst(Inst) {}
+  operator bool() const { return Type != 0; }
 };
 
 std::string Errors[] = {"success",        "multiple blocks", "expected return",
@@ -450,12 +456,12 @@ static std::pair<PatternError, std::unique_ptr<PatternNode>>
 traverseOperand(MachineRegisterInfo &MRI, MachineInstr &Cur, int i) {
   auto *Op = MRI.getOneDef(Cur.getOperand(1).getReg());
   if (!Op)
-    return std::make_pair(PatternError::FORMAT, nullptr);
+    return std::make_pair(FORMAT, nullptr);
   auto [Err, Node] = traverse(MRI, *Op->getParent());
   if (Err)
     return std::make_pair(Err, nullptr);
 
-  return std::make_pair(PatternError::SUCCESS, std::move(Node));
+  return std::make_pair(SUCCESS, std::move(Node));
 }
 
 static std::tuple<PatternError, std::unique_ptr<PatternNode>,
@@ -464,10 +470,10 @@ traverseBinopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
                       int start = 1) {
   auto *LHS = MRI.getOneDef(Cur.getOperand(start).getReg());
   if (!LHS)
-    return std::make_tuple(PatternError::FORMAT, nullptr, nullptr);
+    return std::make_tuple(PatternError(FORMAT, &Cur), nullptr, nullptr);
   auto *RHS = MRI.getOneDef(Cur.getOperand(start + 1).getReg());
   if (!RHS)
-    return std::make_tuple(PatternError::FORMAT, nullptr, nullptr);
+    return std::make_tuple(PatternError(FORMAT, &Cur), nullptr, nullptr);
 
   auto [ErrL, NodeL] = traverse(MRI, *LHS->getParent());
   if (ErrL)
@@ -476,8 +482,7 @@ traverseBinopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
   auto [ErrR, NodeR] = traverse(MRI, *RHS->getParent());
   if (ErrR)
     return std::make_tuple(ErrR, nullptr, nullptr);
-  return std::make_tuple(PatternError::SUCCESS, std::move(NodeL),
-                         std::move(NodeR));
+  return std::make_tuple(SUCCESS, std::move(NodeL), std::move(NodeR));
 }
 
 static std::pair<PatternError, std::unique_ptr<PatternNode>>
@@ -497,8 +502,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_XOR:
   case TargetOpcode::G_SHL:
   case TargetOpcode::G_LSHR:
-  case TargetOpcode::G_ASHR:
-  {
+  case TargetOpcode::G_ASHR: {
 
     auto [Err, NodeL, NodeR] = traverseBinopOperands(MRI, Cur);
     if (Err)
@@ -515,7 +519,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     // type for G_LOAD (handled via fallthrough)
     auto *Operand = MRI.getOneDef(Cur.getOperand(1).getReg());
     if (!Operand)
-      return std::make_pair(PatternError::FORMAT_LOAD, nullptr);
+      return std::make_pair(PatternError(FORMAT_LOAD, &Cur), nullptr);
 
     auto [Err, Node] = traverse(MRI, *Operand->getParent());
     if (Err)
@@ -531,14 +535,14 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_LOAD: {
     auto *Addr = MRI.getOneDef(Cur.getOperand(1).getReg());
     if (!Addr)
-      return std::make_pair(PatternError::FORMAT_LOAD, nullptr);
+      return std::make_pair(PatternError(FORMAT_LOAD, &Cur), nullptr);
     auto *AddrI = Addr->getParent();
     if (AddrI->getOpcode() != TargetOpcode::COPY)
-      return std::make_pair(PatternError::FORMAT_LOAD, nullptr);
+      return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
 
     auto AddrLI = AddrI->getOperand(1).getReg();
     if (!MRI.isLiveIn(AddrLI) || !AddrLI.isPhysical())
-      return std::make_pair(PatternError::FORMAT_LOAD, nullptr);
+      return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
 
     auto Node =
         std::make_unique<RegisterNode>(MRI.getType(Cur.getOperand(0).getReg()),
@@ -565,14 +569,14 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   }
   }
 
-  return std::make_pair(FORMAT, nullptr);
+  return std::make_pair(PatternError(FORMAT, &Cur), nullptr);
 }
 
 static std::pair<PatternError, std::unique_ptr<PatternNode>>
 generatePattern(MachineFunction &MF) {
 
   if (MF.size() != 1)
-    return std::make_pair(PatternError::MULTIPLE_BLOCKS, nullptr);
+    return std::make_pair(MULTIPLE_BLOCKS, nullptr);
 
   MachineBasicBlock &BB = *MF.begin();
   MachineRegisterInfo &MRI = MF.getRegInfo();
@@ -584,21 +588,21 @@ generatePattern(MachineFunction &MF) {
   // store which stores the destination register value.
 
   if (Instrs == InstrsEnd || !Instrs->isReturn())
-    return std::make_pair(PatternError::FORMAT_RETURN, nullptr);
+    return std::make_pair(FORMAT_RETURN, nullptr);
   Instrs++;
   if (Instrs == InstrsEnd || Instrs->getOpcode() != TargetOpcode::G_STORE)
-    return std::make_pair(PatternError::FORMAT_STORE, nullptr);
+    return std::make_pair(FORMAT_STORE, nullptr);
 
   auto &Store = *Instrs;
 
   auto *Addr = MRI.getOneDef(Store.getOperand(1).getReg());
   if (Addr == nullptr)
-    return std::make_pair(PatternError::FORMAT_STORE, nullptr);
+    return std::make_pair(FORMAT_STORE, nullptr);
   // todo: check that address is first argument (x10)
 
   auto *Root = MRI.getOneDef(Store.getOperand(0).getReg());
   if (Root == nullptr)
-    return std::make_pair(PatternError::FORMAT_STORE, nullptr);
+    return std::make_pair(FORMAT_STORE, nullptr);
 
   return traverse(MRI, *Root->getParent());
 }
@@ -608,7 +612,12 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   auto [Err, Node] = generatePattern(MF);
   if (Err) {
     llvm::outs() << "Pattern Generation failed for " << MF.getName() << ": "
-                 << Errors[Err] << '\n';
+                 << Errors[Err.Type] << '\n';
+    if (Err.Inst)
+    {
+        llvm::outs() << "Match failure occurred here:\n";
+        llvm::outs() << *Err.Inst << "\n";
+    }
     return true;
   }
 
@@ -631,8 +640,8 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
         } else if (Type.getElementType().getSizeInBits() == 16) {
           TypeStrings[I] = "PulpV2";
           InstName += "_V2";
-        }
-        else abort();
+        } else
+          abort();
       } else {
         TypeStrings[I] = "GPR";
         InstName += "_S";
