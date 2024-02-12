@@ -44,7 +44,9 @@ static cl::opt<std::string>
 
 static cl::opt<bool> Force("f", cl::desc("Ignore parser errors."),
                            cl::cat(ToolOptions));
-static cl::opt<bool> Skip("s", cl::desc("Skip pattern-gen step."),
+static cl::opt<bool> SkipFmt("skip-formats", cl::desc("Skip tablegen formats step."),
+                          cl::cat(ToolOptions));
+static cl::opt<bool> SkipPat("skip-patterns", cl::desc("Skip pattern-gen step."),
                           cl::cat(ToolOptions));
 
 static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
