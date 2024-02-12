@@ -120,6 +120,15 @@ int main(int argc, char **argv) {
   auto mod = std::make_unique<Module>("mod", ctx);
   auto instrs = ParseCoreDSL2(ts, (XLen == 64), mod.get());
 
+  if (irOut) {
+    std::string Str;
+    raw_string_ostream OS(Str);
+    OS << *mod;
+    OS.flush();
+    irOut << Str << "\n";
+    irOut.close();
+  }
+
   if (!SkipVerify)
     if (verifyModule(*mod, &errs()))
       return -1;
