@@ -104,16 +104,6 @@ int main(int argc, char **argv) {
   auto mod = std::make_unique<Module>("mod", ctx);
   auto instrs = ParseCoreDSL2(ts, mod.get());
 
-  if (irOut) {
-    // outs() << *mod << "\n";
-    std::string Str;
-    raw_string_ostream OS(Str);
-    OS << *mod;
-    OS.flush();
-    irOut << Str << "\n";
-    irOut.close();
-  }
-
   if (verifyModule(*mod, &errs()))
     return -1;
 
