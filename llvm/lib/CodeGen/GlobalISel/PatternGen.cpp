@@ -662,6 +662,7 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   auto &OutStream = *PatternGenArgs::OutStream;
 
+  // TODO: do not hardcode!
   OutStream << "let Predicates = [HasExt"
                "Xcvsimd"
                "], hasSideEffects = 0, mayLoad = 0, mayStore = 0, "

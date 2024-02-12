@@ -52,13 +52,13 @@ static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
 static cl::opt<std::string>
     Mattr("mattr2", cl::desc("Target specific attributes"),
           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-          cl::init("+m,+unaligned-scalar-mem,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+          cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
 
 // Determine optimization level.
 static cl::opt<char>
     OptLevel("O",
              cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] "
-                      "(default = '-O2')"),
+                      "(default = '-O3')"),
              cl::cat(ToolOptions), cl::init('3'));
 
 #include <iostream>
@@ -101,6 +101,16 @@ int main(int argc, char **argv) {
   LLVMContext ctx;
   auto mod = std::make_unique<Module>("mod", ctx);
   auto instrs = ParseCoreDSL2(ts, mod.get());
+
+  if (irOut) {
+    // outs() << *mod << "\n";
+    std::string Str;
+    raw_string_ostream OS(Str);
+    OS << *mod;
+    OS.flush();
+    irOut << Str << "\n";
+    irOut.close();
+  }
 
   if (verifyModule(*mod, &errs()))
     return -1;
