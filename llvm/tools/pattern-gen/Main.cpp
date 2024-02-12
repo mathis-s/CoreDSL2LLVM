@@ -133,8 +133,12 @@ int main(int argc, char **argv) {
     break;
   }
 
-  if (!Skip) {
+  OptimizeBehavior(mod.get(), instrs, irOut, ExtName, Opt, Mattr);
+  if (!SkipFmt)
     PrintInstrsAsTableGen(instrs, formatOut);
-    GeneratePatterns(mod.get(), instrs, patternOut, irOut, ExtName, Opt, Mattr);
-  }
+
+  if (!SkipPat)
+    if (GeneratePatterns(mod.get(), instrs, patternOut, ExtName, Mattr))
+      return -1;
+  return 0;
 }
