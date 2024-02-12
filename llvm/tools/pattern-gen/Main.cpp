@@ -66,7 +66,7 @@ static cl::opt<char>
 #include <iostream>
 namespace fs = std::filesystem;
 
-static auto get_out_streams(std::string srcPath, std::string destPath) {
+static auto get_out_streams(std::string srcPath, std::string destPath, bool emitLL) {
   fs::path outPath{destPath};
 
   fs::path inPath{srcPath};
@@ -78,9 +78,18 @@ static auto get_out_streams(std::string srcPath, std::string destPath) {
     newExt = outPath.extension();
   }
   // TODO: allow .td in out path
-  std::string irPath = basePath.string() + ".ll";
-  std::string fmtPath = basePath.string() + "InstrFormat" + newExt;
-  std::string patPath = basePath.string() + newExt;
+  std::string irPath = "/dev/null";
+  std::string fmtPath = "/dev/null";
+  std::string patPath = "/dev/null";
+  if (emitLL) {
+    irPath = basePath.string() + ".ll";
+  }
+  if (!SkipFmt) {
+    fmtPath = basePath.string() + "InstrFormat" + newExt;
+  }
+  if (!SkipPat) {
+    patPath = basePath.string() + newExt;
+  }
 
   return std::make_tuple(std::ofstream(irPath), std::ofstream(fmtPath),
                          std::ofstream(patPath));
@@ -97,7 +106,7 @@ int main(int argc, char **argv) {
   // const char* srcPath = argv[1];
 
   auto [irOut, formatOut, patternOut] =
-      get_out_streams(InputFilename, OutputFilename);
+      get_out_streams(InputFilename, OutputFilename, true);
 
   TokenStream ts(InputFilename.c_str());
   LLVMContext ctx;
