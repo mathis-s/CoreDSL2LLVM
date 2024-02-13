@@ -680,5 +680,10 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   Code += ")>;";
   OutStream << "\n" << Code << "\n\n";
 
+  // Delete all instructions to avoid match failures if patterns are not
+  // included
+  for (auto &MBB : MF)
+    MBB.clear();
+
   return true;
 }
