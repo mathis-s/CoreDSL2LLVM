@@ -48,6 +48,7 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
   const LLT s32 = LLT::scalar(32);
   const LLT s64 = LLT::scalar(64);
   const LLT v4i8 = LLT::fixed_vector(4, LLT::scalar(8));
+  const LLT v2i16 = LLT::fixed_vector(2, LLT::scalar(16));
 
   using namespace TargetOpcode;
 
@@ -179,17 +180,23 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
   if (ST.hasVendorXCvsimd()) {
     LoadStoreActions.bitcastIf(LegalityPredicates::typeIs(0, v4i8),
                                LegalizeMutations::changeTo(0, LLT::scalar(32)));
+    LoadStoreActions.bitcastIf(LegalityPredicates::typeIs(0, v2i16),
+                               LegalizeMutations::changeTo(0, LLT::scalar(32)));
 
     // allow bitcasting back and forth between vector and scalar
     getActionDefinitionsBuilder(G_BITCAST)
         .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(0, s32),
                                          LegalityPredicates::typeIs(1, v4i8)))
         .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(1, s32),
-                                         LegalityPredicates::typeIs(0, v4i8)));
+                                         LegalityPredicates::typeIs(0, v4i8)))
+        .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(0, s32),
+                                         LegalityPredicates::typeIs(1, v2i16)))
+        .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(1, s32),
+                                         LegalityPredicates::typeIs(0, v2i16)));
 
-    getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor({v4i8});
+    getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor({v4i8, v2i16});
 
-    ArithActions.legalFor({v4i8});
+    ArithActions.legalFor({v4i8, v2i16});
   }
 
   auto &ExtLoadActions =
