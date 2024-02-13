@@ -197,6 +197,7 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
     getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor({v4i8, v2i16});
 
     ArithActions.legalFor({v4i8, v2i16});
+    ShiftActions.legalFor({v4i8, v2i16});
   }
 
   auto &ExtLoadActions =
