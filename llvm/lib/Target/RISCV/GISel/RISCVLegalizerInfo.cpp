@@ -386,12 +386,16 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
   auto &AbsActions = getActionDefinitionsBuilder(G_ABS);
   if (ST.hasStdExtZbb())
     AbsActions.customFor({s32, sXLen}).minScalar(0, sXLen);
+  else if (ST.hasVendorXCValu())
+    AbsActions.legalFor({s32}).minScalar(0, sXLen);
   AbsActions.lower();
 
   auto &MinMaxActions =
       getActionDefinitionsBuilder({G_UMAX, G_UMIN, G_SMAX, G_SMIN});
   if (ST.hasStdExtZbb())
     MinMaxActions.legalFor({sXLen}).minScalar(0, sXLen);
+  else if (ST.hasVendorXCValu())
+    MinMaxActions.legalFor({s32}).minScalar(0, sXLen);
   MinMaxActions.lower();
 
   getActionDefinitionsBuilder(G_FRAME_INDEX).legalFor({p0});
