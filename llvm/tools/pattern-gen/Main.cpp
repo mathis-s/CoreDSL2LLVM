@@ -54,7 +54,8 @@ static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
 static cl::opt<std::string>
     Mattr("mattr2", cl::desc("Target specific attributes"),
           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-          cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+          // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+          cl::init("+m,+fast-unaligned-access"));
 
 // Determine optimization level.
 static cl::opt<char>
