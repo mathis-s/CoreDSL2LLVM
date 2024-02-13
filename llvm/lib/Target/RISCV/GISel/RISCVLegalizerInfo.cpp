@@ -294,6 +294,7 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
                                          LegalityPredicates::typeInSet(0, XCVVecTys)));
 
     getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor(XCVVecTys);
+    ShiftActions.legalFor(XCVVecTys);
   }
 
   auto &ExtLoadActions =
