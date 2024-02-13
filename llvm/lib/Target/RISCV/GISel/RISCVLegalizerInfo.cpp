@@ -521,11 +521,12 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
 
   getActionDefinitionsBuilder(G_ABS)
       .customFor(ST.hasStdExtZbb(), {sXLen})
+      .legalFor(ST.hasVendorXCValu(), {sXLen})
       .minScalar(ST.hasStdExtZbb(), 0, sXLen)
       .lower();
 
   getActionDefinitionsBuilder({G_UMAX, G_UMIN, G_SMAX, G_SMIN})
-      .legalFor(ST.hasStdExtZbb(), {sXLen})
+      .legalFor(ST.hasStdExtZbb() || ST.hasVendorXCValu(), {sXLen})
       .minScalar(ST.hasStdExtZbb(), 0, sXLen)
       .lower();
 
