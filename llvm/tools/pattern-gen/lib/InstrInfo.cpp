@@ -22,7 +22,8 @@ std::string EncodingToTablgen(CDSLInstr const& instr)
 
     for (auto const& f : instr.fields)
     {
-        if (f.dstOffset == 0 && f.len == 7)
+        // if (f.dstOffset == 0 && f.len == 7)
+        if (false)
             s << "\tlet Opcode = ";
         else
             s << "\tlet Inst{" << std::to_string(f.dstOffset + f.len - 1) << "-" << std::to_string(f.dstOffset)
