@@ -52,7 +52,7 @@ static cl::opt<bool> SkipVerify("skip-verify", cl::desc("Skip verification step.
                           cl::cat(ToolOptions));
 
 static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
-                                    cl::cat(ToolOptions), cl::init("Xcvsimd"));
+                                    cl::cat(ToolOptions), cl::init("ExtXcvsimd"));
 static cl::opt<std::string>
     Mattr("mattr2", cl::desc("Target specific attributes"),
           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),

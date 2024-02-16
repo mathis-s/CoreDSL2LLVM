@@ -690,11 +690,10 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   InsString = InsString.substr(0, InsString.size() - 2);
 
   auto &OutStream = *PatternGenArgs::OutStream;
+  auto &ExtName = *PatternGenArgs::ExtName;
 
   // TODO: do not hardcode!
-  OutStream << "let Predicates = [HasExt"
-               "Xcvsimd"
-               "], hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
+  OutStream << "let Predicates = [Has" << ExtName << "], hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
                "isCodeGenOnly = 1";
   if (!TypeStrings[1].empty())
     OutStream << ", Constraints = \"$rd = $rd_wb\"";
