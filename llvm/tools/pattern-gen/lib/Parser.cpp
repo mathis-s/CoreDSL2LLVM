@@ -585,8 +585,8 @@ Value gen_inc(bool isPost, TokenStream& ts, llvm::Function* func, llvm::IRBuilde
 }
 
 // this can be updated to std::bind_front once LLVM switches to a newer standard
-auto gen_preinc = std::bind(&gen_inc, true, _1, _2, _3, _4, _5, _6);
-auto gen_postinc = std::bind(&gen_inc, false, _1, _2, _3, _4, _5, _6);
+auto gen_preinc = std::bind(&gen_inc, false, _1, _2, _3, _4, _5, _6);
+auto gen_postinc = std::bind(&gen_inc, true, _1, _2, _3, _4, _5, _6);
 
 struct Operator
 {
