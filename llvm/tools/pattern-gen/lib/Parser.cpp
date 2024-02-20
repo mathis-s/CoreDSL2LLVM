@@ -17,12 +17,14 @@
 #include "llvm/Support/TypeSize.h"
 #include <array>
 #include <cstdlib>
+#include <functional>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <unordered_map>
 
 const size_t IMM_CNT = 2;
+using namespace std::placeholders;
 
 struct Value
 {
@@ -159,138 +161,6 @@ static void fit_to_size(Value& v, llvm::IRBuilder<>& build)
     else if (newType->getIntegerBitWidth() < (v.isLValue ? v.bitWidth : v.ll->getType()->getIntegerBitWidth()))
         v.ll = build.CreateTrunc(v.ll, newType);
     //v.bitWidth = bitWidth2;
-}
-
-Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build)
-{
-    auto& ctx = func->getContext();
-    switch (ts.Peek().type)
-    {
-        case Identifier:
-        {
-            auto t = ts.Pop();
-            if (t.ident.str == "X")
-            {
-                pop_cur(ts, ABrOpen);
-                auto ident = pop_cur(ts, Identifier).ident.str;
-                pop_cur(ts, ABrClose);
-                if (ident == "rd")
-                    return {func->getArg(0), 32, false};
-                if (ident == "rs1")
-                    return {func->getArg(1), 32, false};
-                if (ident == "rs2")
-                    return {func->getArg(2), 32, false};
-            }
-            auto iter = immediateNames.find(t.ident.str);
-            if (iter != immediateNames.end())
-            {
-                Value v = {func->getArg(3 + iter->second), false};
-                // In LLVM logic, the immediate is actually 32 bits
-                // (just small enough to fit into 6 signed/unsigned bits)
-                v.bitWidth = 32;
-                //curInstr->SetSignedImm(iter->second, false);
-                return v;
-            }
-            // rd is true to skip "if (rd != 0)" checks.
-            if (t.ident.str == "rd")
-                return {llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1)};
-
-            auto iter2 = variables.find(t.ident.idx);
-            if (iter2 != variables.end())
-                return iter2->getSecond().back().val;
-
-            error(("undefined symbol: " + std::string(t.ident.str)).c_str(), ts);
-        }
-        case IntLiteral:
-        {
-            Token t = ts.Pop();
-            return Value(llvm::ConstantInt::get(llvm::Type::getIntNTy(ctx, t.literal.bitLen), t.literal.value,
-                                                t.literal.isSigned),
-                         t.literal.isSigned);
-        }
-        case Minus:
-        {
-            ts.Pop();
-            auto expr = ParseExpression(ts, func, build, 15 - 2);
-            promote_lvalue(build, expr);
-            expr.bitWidth++;
-            fit_to_size(expr, build);
-            expr.ll = build.CreateNeg(expr.ll);
-            expr.isSigned = true;
-            return expr;
-        }
-        case BitwiseNOT:
-        {
-            ts.Pop();
-            auto expr = ParseExpression(ts, func, build, 15 - 2);
-            promote_lvalue(build, expr);
-            expr.ll = build.CreateNot(expr.ll);
-            return expr;
-        }
-        case LogicalNOT:
-        {
-            ts.Pop();
-            auto expr = ParseExpression(ts, func, build, 15 - 2);
-            promote_lvalue(build, expr);
-            expr.ll = build.CreateICmpEQ(expr.ll, llvm::ConstantInt::get(expr.ll->getType(), 0));
-            return expr;
-        }
-        case RBrOpen:
-        {
-            ts.Pop();
-            // Cast
-            if (ts.Peek().type == SignedKeyword || ts.Peek().type == UnsignedKeyword)
-            {
-                bool isSigned = (ts.Pop().type == SignedKeyword);
-
-                int len = 0;
-                if (pop_cur_if(ts, LessThan))
-                {
-                    len = pop_cur(ts, IntLiteral).literal.value;
-                    if (len == 0)
-                        syntax_error(ts);
-                    pop_cur(ts, GreaterThan);
-                }
-                pop_cur(ts, RBrClose);
-
-                auto v = ParseExpression(ts, func, build, 15 - 2);
-                
-                // Keep track locally if the immediate is used 
-                // signed or unsigned for this instruction.
-                // Using both is undefined behaviour.
-                for (size_t i = 0; i < IMM_CNT; i++)
-                    if (v.ll == func->getArg(i + 3) && (len == 0 || len == 32))
-                        if (!curInstr->SetSignedImm(i, isSigned)) error("internal errro", ts);
-
-                if (len != 0)
-                {
-                    promote_lvalue(build, v);
-                    auto newType = llvm::Type::getIntNTy(ctx, len);
-
-                    if (v.bitWidth > len)
-                        v.ll = build.CreateTrunc(v.ll, newType);
-                    if (v.bitWidth < len)
-                    {
-                        if (v.isSigned)
-                            v.ll = build.CreateSExt(v.ll, newType);
-                        else
-                            v.ll = build.CreateZExt(v.ll, newType);
-                    }
-                    v.bitWidth = len;
-                }
-                v.isSigned = isSigned;
-                return v;
-            }
-            else
-            {
-                auto rv = ParseExpression(ts, func, build);
-                pop_cur(ts, RBrClose);
-                return rv;
-            }
-            break;
-        }
-        default: syntax_error(ts);
-    }
 }
 
 Value gen_subscript(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left,
@@ -679,15 +549,54 @@ Value gen_logical(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& buil
     return Value(phi, false);
 }
 
+Value gen_concat(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left, Value right)
+{
+    promote_lvalue(build, left);
+    promote_lvalue(build, right);
+
+    left.bitWidth += right.bitWidth;
+    fit_to_size(left, build);
+    left.ll = build.CreateShl(left.ll, llvm::ConstantInt::get(left.ll->getType(), right.bitWidth));
+
+    right.bitWidth = left.bitWidth;
+    {
+        bool rightSigned = right.isSigned;
+        right.isSigned = false;
+        fit_to_size(right, build);
+        right.isSigned = rightSigned;
+    }
+    
+    left.ll = build.CreateOr(left.ll, right.ll);
+    return left;
+}
+
+Value gen_inc(bool isPost, TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left, Value right)
+{
+    auto& ctx = func->getContext();
+
+    if (!left.isLValue)
+        error("cannot assign rvalue", ts);
+    
+    auto pre = build.CreateLoad(llvm::Type::getIntNTy(ctx, left.bitWidth), left.ll);
+    auto post = build.CreateAdd(pre, llvm::ConstantInt::get(pre->getType(), (op == Decrement) ? -1 : 1));
+    build.CreateStore(post, left.ll);
+
+    return Value(isPost ? post : pre, left.isSigned);
+}
+
+// this can be updated to std::bind_front once LLVM switches to a newer standard
+auto gen_preinc = std::bind(&gen_inc, false, _1, _2, _3, _4, _5, _6);
+auto gen_postinc = std::bind(&gen_inc, true, _1, _2, _3, _4, _5, _6);
+
 struct Operator
 {
-    using OpFunc = Value(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left,
+    using OpSig = Value(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left,
                          Value right);
     uint8_t prec;
     bool rassoc;
     bool unary;
-    OpFunc* func;
-    constexpr Operator(uint8_t prec, bool rassoc, bool unary, OpFunc func)
+    std::function<OpSig> func;
+    Operator(uint8_t prec, bool rassoc, bool unary, std::function<OpSig>&& func)
         : prec(15 - prec), rassoc(rassoc), unary(unary), func(func)
     {
     }
@@ -716,7 +625,7 @@ static const Operator precTable[] =
     [LogicalAND]           = Operator(12, 0, 1, gen_logical),
     [LogicalOR]            = Operator(13, 0, 1, gen_logical),
     [Ternary]              = Operator(14, 1, 1, gen_ternary),
-    [BitwiseConcat]        = Operator(11, 0, 0, nullptr),
+    [BitwiseConcat]        = Operator(11, 0, 0, gen_concat),
     [Assignment]           = Operator(15, 1, 0, gen_assign),
     [AssignmentAdd]        = Operator(15, 1, 0, gen_binop),
     [AssignmentSub]        = Operator(15, 1, 0, gen_binop),
@@ -728,10 +637,150 @@ static const Operator precTable[] =
     [AssignmentXOR]        = Operator(15, 1, 0, gen_binop),
     [AssignmentShiftRight] = Operator(15, 0, 0, gen_binop),
     [AssignmentShiftLeft]  = Operator(15, 0, 0, gen_binop),
-    [Increment]            = Operator(1,  0, 1, nullptr),
-    [Decrement]            = Operator(1,  0, 1, nullptr),
+    [Increment]            = Operator(1,  0, 1, gen_preinc),
+    [Decrement]            = Operator(1,  0, 1, gen_preinc),
 };
 // clang-format on
+
+Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build)
+{
+    auto& ctx = func->getContext();
+    switch (ts.Peek().type)
+    {
+        case Identifier:
+        {
+            auto t = ts.Pop();
+            if (t.ident.str == "X")
+            {
+                pop_cur(ts, ABrOpen);
+                auto ident = pop_cur(ts, Identifier).ident.str;
+                pop_cur(ts, ABrClose);
+                if (ident == "rd")
+                    return {func->getArg(0), 32, false};
+                if (ident == "rs1")
+                    return {func->getArg(1), 32, false};
+                if (ident == "rs2")
+                    return {func->getArg(2), 32, false};
+            }
+            auto iter = immediateNames.find(t.ident.str);
+            if (iter != immediateNames.end())
+            {
+                Value v = {func->getArg(3 + iter->second), false};
+                // In LLVM logic, the immediate is actually 32 bits
+                // (just small enough to fit into 6 signed/unsigned bits)
+                v.bitWidth = 32;
+                //curInstr->SetSignedImm(iter->second, false);
+                return v;
+            }
+            // rd is true to skip "if (rd != 0)" checks.
+            if (t.ident.str == "rd")
+                return {llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1)};
+
+            auto iter2 = variables.find(t.ident.idx);
+            if (iter2 != variables.end())
+                return iter2->getSecond().back().val;
+
+            error(("undefined symbol: " + std::string(t.ident.str)).c_str(), ts);
+        }
+        case IntLiteral:
+        {
+            Token t = ts.Pop();
+            return Value(llvm::ConstantInt::get(llvm::Type::getIntNTy(ctx, t.literal.bitLen), t.literal.value,
+                                                t.literal.isSigned),
+                         t.literal.isSigned);
+        }
+        case Minus:
+        {
+            ts.Pop();
+            auto expr = ParseExpression(ts, func, build, 15 - 2);
+            promote_lvalue(build, expr);
+            expr.bitWidth++;
+            fit_to_size(expr, build);
+            expr.ll = build.CreateNeg(expr.ll);
+            expr.isSigned = true;
+            return expr;
+        }
+        case BitwiseNOT:
+        {
+            ts.Pop();
+            auto expr = ParseExpression(ts, func, build, 15 - 2);
+            promote_lvalue(build, expr);
+            expr.ll = build.CreateNot(expr.ll);
+            return expr;
+        }
+        case LogicalNOT:
+        {
+            ts.Pop();
+            auto expr = ParseExpression(ts, func, build, 15 - 2);
+            promote_lvalue(build, expr);
+            expr.ll = build.CreateICmpEQ(expr.ll, llvm::ConstantInt::get(expr.ll->getType(), 0));
+            return expr;
+        }
+        case Increment:
+        case Decrement:
+        {
+            bool dec = ts.Peek().type == Decrement;
+            ts.Pop();
+            auto expr = ParseExpression(ts, func, build, 15 - 2);
+            return gen_postinc(ts, func, build, dec ? Decrement : Increment, expr, Value());
+        }
+        case RBrOpen:
+        {
+            ts.Pop();
+            // Cast
+            if (ts.Peek().type == SignedKeyword || ts.Peek().type == UnsignedKeyword)
+            {
+                bool isSigned = (ts.Pop().type == SignedKeyword);
+
+                int len = 0;
+                if (pop_cur_if(ts, LessThan))
+                {
+                    len = pop_cur(ts, IntLiteral).literal.value;
+                    if (len == 0)
+                        syntax_error(ts);
+                    pop_cur(ts, GreaterThan);
+                }
+                pop_cur(ts, RBrClose);
+
+                auto v = ParseExpression(ts, func, build, 15 - 2);
+                
+                // Keep track locally if the immediate is used 
+                // signed or unsigned for this instruction.
+                // Using both is undefined behaviour.
+                for (size_t i = 0; i < IMM_CNT; i++)
+                    if (v.ll == func->getArg(i + 3) && (len == 0 || len == 32))
+                        if (!curInstr->SetSignedImm(i, isSigned)) error("internal errro", ts);
+
+                if (len != 0)
+                {
+                    promote_lvalue(build, v);
+                    auto newType = llvm::Type::getIntNTy(ctx, len);
+
+                    if (v.bitWidth > len)
+                        v.ll = build.CreateTrunc(v.ll, newType);
+                    if (v.bitWidth < len)
+                    {
+                        if (v.isSigned)
+                            v.ll = build.CreateSExt(v.ll, newType);
+                        else
+                            v.ll = build.CreateZExt(v.ll, newType);
+                    }
+                    v.bitWidth = len;
+                }
+                v.isSigned = isSigned;
+                return v;
+            }
+            else
+            {
+                auto rv = ParseExpression(ts, func, build);
+                pop_cur(ts, RBrClose);
+                return rv;
+            }
+            break;
+        }
+        default: syntax_error(ts);
+    }
+}
 
 Value ParseExpression(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, int minPrec)
 {
