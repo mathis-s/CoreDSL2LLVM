@@ -1091,45 +1091,53 @@ std::vector<CDSLInstr> ParseCoreDSL2(TokenStream& ts, llvm::Module* mod)
 {
     std::vector<CDSLInstr> instrs;
 
-    // boilerplate
-    pop_cur(ts, Identifier);
-    pop_cur(ts, Identifier);
-    if (pop_cur_if(ts, ExtendsKeyword))
-        pop_cur(ts, Identifier);
-    pop_cur(ts, CBrOpen);
-    pop_cur(ts, InstructionsKeyword);
-    pop_cur(ts, CBrOpen);
-
-    while (ts.Peek().type != CBrClose)
+    while(ts.Peek().type != None)
     {
-        reset_globals();
-        Token ident = pop_cur(ts, Identifier);
-        pop_cur(ts, CBrOpen);
-        CDSLInstr instr{.name = std::string(ident.ident.str)};
-        curInstr = &instr;
-
-        while (ts.Peek().type != CBrClose)
+        bool parseBoilerplate = ts.Peek().type == Identifier && ts.Peek().ident.str == "InstructionSet";
+        if (parseBoilerplate)
         {
-            switch (ts.Peek().type)
-            {
-                case EncodingKeyword:
-                    ParseEncoding(ts, instr);
-                    break;
-                case AssemblyKeyword:
-                    ParseArguments(ts, instr);
-                    break;
-                case BehaviorKeyword:
-                    ParseBehaviour(ts, instr, mod, ident);
-                    break;
-                default: syntax_error(ts);
-            }
+            pop_cur(ts, Identifier);
+            pop_cur(ts, Identifier);
+            if (pop_cur_if(ts, ExtendsKeyword))
+                pop_cur(ts, Identifier);
+            pop_cur(ts, CBrOpen);
+            pop_cur(ts, InstructionsKeyword);
+            pop_cur(ts, CBrOpen);
         }
-        pop_cur(ts, CBrClose);
-        instrs.push_back(instr); 
+
+        while (ts.Peek().type != CBrClose && ts.Peek().type != None)
+        {
+            reset_globals();
+            Token ident = pop_cur(ts, Identifier);
+            pop_cur(ts, CBrOpen);
+            CDSLInstr instr{.name = std::string(ident.ident.str)};
+            curInstr = &instr;
+
+            while (ts.Peek().type != CBrClose)
+            {
+                switch (ts.Peek().type)
+                {
+                    case EncodingKeyword:
+                        ParseEncoding(ts, instr);
+                        break;
+                    case AssemblyKeyword:
+                        ParseArguments(ts, instr);
+                        break;
+                    case BehaviorKeyword:
+                        ParseBehaviour(ts, instr, mod, ident);
+                        break;
+                    default: syntax_error(ts);
+                }
+            }
+            pop_cur(ts, CBrClose);
+            instrs.push_back(instr); 
+        }
+        
+        if (parseBoilerplate)
+        {
+            pop_cur(ts, CBrClose);
+            pop_cur(ts, CBrClose);
+        }
     }
-
-    pop_cur(ts, CBrClose);
-    pop_cur(ts, CBrClose);
-
     return instrs;
 }
