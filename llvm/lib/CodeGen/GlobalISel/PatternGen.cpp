@@ -104,18 +104,21 @@ enum PatternErrorT {
   FORMAT_RETURN,
   FORMAT_STORE,
   FORMAT_LOAD,
+  FORMAT_IMM,
   FORMAT
 };
 struct PatternError {
   PatternErrorT Type;
-  MachineInstr* Inst;
+  MachineInstr *Inst;
   PatternError(PatternErrorT Type) : Type(Type), Inst(nullptr) {}
-  PatternError(PatternErrorT Type, MachineInstr* Inst) : Type(Type), Inst(Inst) {}
+  PatternError(PatternErrorT Type, MachineInstr *Inst)
+      : Type(Type), Inst(Inst) {}
   operator bool() const { return Type != 0; }
 };
 
 std::string Errors[] = {"success",        "multiple blocks", "expected return",
-                        "expected store", "load format",     "format"};
+                        "expected store", "load format",     "immediate format",
+                        "format"};
 
 static const std::unordered_map<unsigned, std::string> cmpStr = {
     {CmpInst::Predicate::ICMP_EQ, "SETEQ"},
@@ -596,6 +599,20 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
                                        (CmpInst::Predicate)Pred.getPredicate(),
                                        std::move(NodeL), std::move(NodeR)));
   }
+  case TargetOpcode::COPY: {
+    // Immediate Operands
+    auto Reg = Cur.getOperand(1).getReg();
+    if (!Reg.isPhysical())
+      return std::make_pair(FORMAT_IMM, nullptr);
+
+    uint Id = Reg.asMCReg().id() - 41 - 10;
+    if (!(Id >= 3 && Id <= 4))
+      return std::make_pair(FORMAT_IMM, nullptr);
+    
+    return std::make_pair(
+        SUCCESS, std::make_unique<RegisterNode>(
+                     MRI.getType(Cur.getOperand(0).getReg()), Id, 0, -1));
+  }
   }
 
   return std::make_pair(PatternError(FORMAT, &Cur), nullptr);
@@ -642,10 +659,9 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   if (Err) {
     llvm::outs() << "Pattern Generation failed for " << MF.getName() << ": "
                  << Errors[Err.Type] << '\n';
-    if (Err.Inst)
-    {
-        llvm::outs() << "Match failure occurred here:\n";
-        llvm::outs() << *Err.Inst << "\n";
+    if (Err.Inst) {
+      llvm::outs() << "Match failure occurred here:\n";
+      llvm::outs() << *Err.Inst << "\n";
     }
     return true;
   }
