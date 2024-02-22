@@ -488,6 +488,19 @@ traverseBinopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
   return std::make_tuple(SUCCESS, std::move(NodeL), std::move(NodeR));
 }
 
+static std::tuple<PatternError, std::unique_ptr<PatternNode>>
+traverseUnopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
+                      int start = 1) {
+  auto *RHS = MRI.getOneDef(Cur.getOperand(start).getReg());
+  if (!RHS)
+    return std::make_tuple(PatternError(FORMAT, &Cur), nullptr);
+
+  auto [ErrR, NodeR] = traverse(MRI, *RHS->getParent());
+  if (ErrR)
+    return std::make_tuple(ErrR, nullptr);
+  return std::make_tuple(SUCCESS, std::move(NodeR));
+}
+
 static std::pair<PatternError, std::unique_ptr<PatternNode>>
 
 traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
@@ -503,6 +516,10 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_AND:
   case TargetOpcode::G_OR:
   case TargetOpcode::G_XOR:
+  case TargetOpcode::G_SMAX:
+  case TargetOpcode::G_UMAX:
+  case TargetOpcode::G_SMIN:
+  case TargetOpcode::G_UMIN:
   case TargetOpcode::G_SHL:
   case TargetOpcode::G_LSHR:
   case TargetOpcode::G_ASHR: {
@@ -514,6 +531,18 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     auto Node = std::make_unique<BinopNode>(
         MRI.getType(Cur.getOperand(0).getReg()), Cur.getOpcode(),
         std::move(NodeL), std::move(NodeR));
+
+    return std::make_pair(SUCCESS, std::move(Node));
+  }
+  case TargetOpcode::G_ABS: {
+
+    auto [Err, NodeR] = traverseUnopOperands(MRI, Cur);
+    if (Err)
+      return std::make_pair(Err, nullptr);
+
+    auto Node = std::make_unique<UnopNode>(
+        MRI.getType(Cur.getOperand(0).getReg()), Cur.getOpcode(),
+        std::move(NodeR));
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
@@ -677,10 +706,10 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   InsString = InsString.substr(0, InsString.size() - 2);
 
   auto &OutStream = *PatternGenArgs::OutStream;
+  auto &ExtName = *PatternGenArgs::ExtName;
 
-  OutStream << "let Predicates = [HasExt"
-               "Xcvsimd"
-               "], hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
+  // TODO: do not hardcode!
+  OutStream << "let Predicates = [Has" << ExtName << "], hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
                "isCodeGenOnly = 1";
   if (!TypeStrings[1].empty())
     OutStream << ", Constraints = \"$rd = $rd_wb\"";
