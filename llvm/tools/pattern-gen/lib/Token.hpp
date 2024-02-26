@@ -66,6 +66,7 @@ enum TokenType
     ElseKeyword,
     WhileKeyword,
     ForKeyword,
+    OperandsKeyword,
     EncodingKeyword,
     AssemblyKeyword,
     BehaviorKeyword,
@@ -73,6 +74,8 @@ enum TokenType
     InstructionsKeyword,
     SignedKeyword,
     UnsignedKeyword,
+
+    TOK_KW_END = UnsignedKeyword,
 
     Identifier,
     IntLiteral,
