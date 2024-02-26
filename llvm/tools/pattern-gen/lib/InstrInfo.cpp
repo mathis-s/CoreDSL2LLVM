@@ -14,23 +14,21 @@ std::string EncodingToTablgen(CDSLInstr const& instr)
       << " : RVInst<outs, ins, \"" << opcodeString << "\", \"" << instr.argString << "\", [], InstFormatOther> {\n";
 
     for (auto const& f : instr.fields)
-        if (f.IsRegImm() && f.srcOffset == 0)
+        if (f.type & (CDSLInstr::FieldType::NON_CONST))
         {
-            int len = (f.type >= CDSLInstr::Field::ID_IMM0) ? f.value & 0x7fffffff : 5;
-            s << "\tbits<" << len << "> " << f.TypeAsString() << ";\n";
+            int len = f.len;
+            s << "\tbits<" << len << "> " << f.ident << ";\n";
         }
 
-    for (auto const& f : instr.fields)
+    for (auto const& f : instr.frags)
     {
-        if (f.dstOffset == 0 && f.len == 7)
-            s << "\tlet Opcode = ";
+        s << "\tlet Inst{" << std::to_string(f.dstOffset + f.len - 1) << "-" << std::to_string(f.dstOffset) << "} = ";
+        auto const& field = instr.fields[f.idx];
+
+        if (field.type == CDSLInstr::FieldType::CONST)
+            s << "0x" << std::hex << ((field.constV >> f.srcOffset) & ((1UL << f.len) - 1)) << std::dec;
         else
-            s << "\tlet Inst{" << std::to_string(f.dstOffset + f.len - 1) << "-" << std::to_string(f.dstOffset)
-              << "} = ";
-        if (f.type == CDSLInstr::Field::CONST)
-            s << "0x" << std::hex << f.value << std::dec;
-        else
-            s << f.TypeAsString() << "{" << std::to_string(f.srcOffset + f.len - 1) << "-"
+            s << field.ident << "{" << std::to_string(f.srcOffset + f.len - 1) << "-"
               << std::to_string(f.srcOffset) << "}";
         s << ";\n";
     }
