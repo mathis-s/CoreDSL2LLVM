@@ -19,13 +19,14 @@ struct TokenStream
         std::make_pair("else", 1),
         std::make_pair("while", 2),
         std::make_pair("for", 3),
-        std::make_pair("encoding", 4),
-        std::make_pair("assembly", 5),
-        std::make_pair("behavior", 6),
-        std::make_pair("extends", 7),
-        std::make_pair("instructions", 8),
-        std::make_pair("signed", 9),
-        std::make_pair("unsigned", 10),
+        std::make_pair("operands", 4),
+        std::make_pair("encoding", 5),
+        std::make_pair("assembly", 6),
+        std::make_pair("behavior", 7),
+        std::make_pair("extends", 8),
+        std::make_pair("instructions", 9),
+        std::make_pair("signed", 10),
+        std::make_pair("unsigned", 11),
     };
     const size_t NUM_KEYWORDS = strings.size();
 
