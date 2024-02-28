@@ -316,7 +316,7 @@ Value gen_compare(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& buil
     };
     Op llop = conv[op];
 
-    // CoreDSL2 does not specify explictly under what circumstances ordering
+    // CoreDSL2 does not specify explicitly under what circumstances ordering
     // comparisons are signed or unsigned. Assume usual C behavior.
     // "[Comparison operators] do not take the operand types into account"
     // -> doesn't make sense
@@ -678,10 +678,8 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                 auto match = find_var(ident.idx);
                 if (match != curInstr->fields.end())
                 {
-                    if (match->type & CDSLInstr::IMM)
-                        error("cannot use immediate operand as register file index", ts);
-
-                    match->type = (CDSLInstr::FieldType)(match->type | CDSLInstr::REG);
+                    if (!(match->type & CDSLInstr::REG))
+                        error((std::string(t.ident.str) + " is used as a register ID but not defined as such").c_str(), ts);
 
                     return Value{func->getArg(match - curInstr->fields.begin()), 32, 
                         (bool)(match->type & CDSLInstr::SIGNED_REG)};
@@ -692,10 +690,8 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                 auto match = find_var(t.ident.idx);
                 if (match != curInstr->fields.end())
                 {
-                    if (match->type & CDSLInstr::REG)
-                        error("cannot use register file index as immedate operand", ts);
-                    
-                    match->type = (CDSLInstr::FieldType)(match->type | CDSLInstr::IMM);
+                    if (!(match->type & CDSLInstr::IMM))
+                        error((std::string(t.ident.str) + " is used as an immediate but not defined as such").c_str(), ts);
                     
                     auto* arg = func->getArg(match - curInstr->fields.begin());
 
@@ -1175,11 +1171,22 @@ void ParseArguments (TokenStream& ts, CDSLInstr& instr)
     pop_cur(ts, Colon);
     
     auto str = std::string(pop_cur(ts, StringLiteral).strLit.str);
-    for (auto const& f : instr.fields)
+    
+    // To support old-style implicit field definitions, we (also) use the argument string
+    // to determine whether a field is an immediate or a register file index. This is not
+    // a problem when using well-formed instruction definitions, but also not particularly
+    // clean. 
+    for (auto& f : instr.fields)
     {
         auto fstr = std::string(f.ident);
-        str = std::regex_replace(str, std::regex("\\{name\\(" + fstr + "\\)\\}"), "$" + fstr);
-        str = std::regex_replace(str, std::regex("\\{" + fstr + "\\}"), "$" + fstr);
+        std::string strNew;
+        strNew = std::regex_replace(str, std::regex("\\{name\\(" + fstr + "\\)\\}"), "$" + fstr);
+        if (strNew != str)
+            f.type = (CDSLInstr::FieldType)(f.type | CDSLInstr::FieldType::REG);
+        str = strNew;
+        strNew = std::regex_replace(str, std::regex("\\{" + fstr + "\\}"), "$" + fstr);
+        if (strNew != str)
+            f.type = (CDSLInstr::FieldType)(f.type | CDSLInstr::FieldType::IMM);
     }
     
     instr.argString = str;
@@ -1196,7 +1203,7 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     llvm::SmallVector<llvm::StringRef, 8> argNames;
     for (auto const& field : curInstr->fields)
     {
-        if (field.type & CDSLInstr::CONST)
+        if (!(field.type & CDSLInstr::NON_CONST))
         {
             assert(&field == &curInstr->fields.back());
             break;
@@ -1204,11 +1211,13 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
 
         if (field.type & CDSLInstr::IMM)
             args.push_back(immT);
-        // For implicit args the default type is ptr. If required,
-        // we change the type later depending on the param being
-        // used as a register ID or an immediate.
         else
             args.push_back(ptrT);
+
+        if ((field.type & CDSLInstr::IMM) && (field.type & CDSLInstr::REG))
+            error(("field " + std::string(field.ident) + " of " + instr.name +
+                   " is both immediate and register ID")
+                      .c_str(), ts);
 
         argNames.push_back(field.ident);
     }
