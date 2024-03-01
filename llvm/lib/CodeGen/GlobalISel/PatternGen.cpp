@@ -10,6 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/GlobalISel/PatternGen.h"
+#include "../../tools/pattern-gen/lib/InstrInfo.hpp"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Analysis/LazyBlockFrequencyInfo.h"
@@ -44,6 +45,7 @@
 #include "llvm/Transforms/Utils/PredicateInfo.h"
 #include <memory>
 #include <sstream>
+#include <string>
 #include <utility>
 
 #define DEBUG_TYPE "instruction-select"
@@ -61,6 +63,20 @@ static const std::string CoveragePrefix;
 
 std::ostream *PatternGenArgs::OutStream = nullptr;
 std::string *PatternGenArgs::ExtName = nullptr;
+std::vector<CDSLInstr> const *PatternGenArgs::Instrs = nullptr;
+
+struct PatternArg {
+  std::string ArgTypeStr;
+  // We also have in and out bits in the CDSLInstr struct itself.
+  // These bits are currently ignored though. Instead, we find inputs
+  // and outputs during pattern gen and store that in these fields.
+  // We may want to add a warning on mismatch between the two.
+  bool In;
+  bool Out;
+};
+
+static CDSLInstr const *CurInstr = nullptr;
+static SmallVector<PatternArg, 8> PatternArgs;
 
 char PatternGen::ID = 0;
 INITIALIZE_PASS_BEGIN(
@@ -138,6 +154,25 @@ std::string lltToString(LLT Llt) {
   llvm::raw_string_ostream TypeStrS(TypeStr);
   Llt.print(TypeStrS);
   return TypeStr;
+}
+
+std::string lltToRegTypeStr(LLT Type) {
+  if (Type.isValid()) {
+    if (Type.isFixedVector() && Type.getElementType().isScalar() &&
+        Type.getSizeInBits() == 32) {
+      if (Type.getElementType().getSizeInBits() == 8)
+        return "PulpV4";
+      if (Type.getElementType().getSizeInBits() == 16)
+        return "PulpV2";
+      abort();
+    } else
+      return "GPR";
+  }
+  assert(0 && "invalid type");
+}
+
+std::string makeImmTypeStr(int Size, bool Signed) {
+  return (Signed ? "simm" : "uimm") + std::to_string(Size);
 }
 
 struct PatternNode {
@@ -373,78 +408,62 @@ struct ConstantNode : public PatternNode {
 };
 
 struct RegisterNode : public PatternNode {
-  int RegId;
-  int Offset; // in bytes
-  int Size;   // 0 byte, 1 half, 2 word
-  ISD::LoadExtType Ext;
 
-  RegisterNode(LLT Type, int RegId, int Offset, int Size,
-               ISD::LoadExtType Ext = ISD::LoadExtType::NON_EXTLOAD)
-      : PatternNode(PN_Register, Type), RegId(RegId), Offset(Offset),
-        Size(Size), Ext(Ext) {}
+  bool IsImm;
+  StringRef Name;
+
+  int Offset;
+  int Size;
+  bool Sext;
+  RegisterNode(LLT Type, StringRef Name, bool IsImm, int Offset, int Size,
+               bool Sext)
+      : PatternNode(PN_Register, Type), IsImm(IsImm), Name(Name),
+        Offset(Offset), Size(Size), Sext(Sext) {}
 
   std::string patternString(int Indent = 0) override {
-    static const std::string RegNames[] = {"rd", "rs1", "rs2", "imm", "imm2"};
 
-    // Immediate Operands
-    if (RegId >= 3) {
-      assert(Size == -1 && Offset == 0);
-      return std::string("(i32 ") +
-             (/*curInstr->SignedImm(regId - 3)*/ 0 ? "simm" : "uimm") +
-             std::to_string(/*curInstr->GetImmLen(regId - 3)*/ 5) + ":$" +
-             RegNames[RegId] + ")";
+    if (IsImm) {
+      // Immediate Operands
+      assert(Offset == 0 && "immediates must have offset 0");
+      return std::string("(i32 ") + (Sext ? "simm" : "uimm") +
+             std::to_string(Size) + ":$" + std::string(Name) + ")";
     }
 
     // Full-Size Register Operands
-    if (Size == 2) {
+    if (Size == 32) {
       if (Type.isScalar() && Type.getSizeInBits() == 32)
-        return "GPR:$" + RegNames[RegId];
+        return "GPR:$" + std::string(Name);
       if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
           Type.getElementType().isScalar() &&
           Type.getElementType().getSizeInBits() == 8)
-        return "PulpV4:$" + RegNames[RegId];
+        return "PulpV4:$" + std::string(Name);
       if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
           Type.getElementType().isScalar() &&
           Type.getElementType().getSizeInBits() == 16)
-        return "PulpV2:$" + RegNames[RegId];
+        return "PulpV2:$" + std::string(Name);
 
       abort();
     }
 
     // Sub-Register Operands
-    if (Size == 1 || Size == 0) {
+    if (Size == 16 || Size == 8) {
       std::string Str;
       if (Type.isScalar() && Type.getSizeInBits() == 32) {
         assert(Offset == 0);
-        Str = "GPR:$" + RegNames[RegId];
+        Str = "GPR:$" + std::string(Name);
       } else
-        Str = std::string("(i32 (vector_extract PulpV") + (Size ? "2" : "4") +
-              ":$" + RegNames[RegId] + ", " +
-              std::to_string(Size ? (Offset / 2) : (Offset)) + "))";
+        Str = std::string("(i32 (vector_extract PulpV") +
+              ((Size == 16) ? "2" : "4") + ":$" + std::string(Name) + ", " +
+              std::to_string((Size == 16) ? (Offset / 2) : (Offset)) + "))";
 
-      std::string Mask = Size ? "65535" : "255";
-      std::string Shamt = Size ? "16" : "24";
-      switch (Ext) {
-      case ISD::LoadExtType::EXTLOAD:
-        return Str;
-      case ISD::LoadExtType::ZEXTLOAD:
-        return "(and " + Str + ", (i32 " + Mask + "))";
-      case ISD::LoadExtType::SEXTLOAD:
+      std::string Mask = (Size == 16) ? "65535" : "255";
+      std::string Shamt = (Size == 16) ? "16" : "24";
+      if (Sext)
         return "(sra (shl " + Str + ", (i32 " + Shamt + ")), (i32 " + Shamt +
                "))";
-      default:
-        break;
-      }
+      return "(and " + Str + ", (i32 " + Mask + "))";
     }
     abort();
-  }
-
-  LLT getRegisterTy(int OperandId) const override {
-    if (OperandId == -1)
-      return Type;
-    if (OperandId == RegId)
-      return Type;
-    return LLT();
   }
 
   static bool classof(const PatternNode *p) {
@@ -488,8 +507,30 @@ traverseBinopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
   return std::make_tuple(SUCCESS, std::move(NodeL), std::move(NodeR));
 }
 
-static std::pair<PatternError, std::unique_ptr<PatternNode>>
+static int getArgIdx(MachineRegisterInfo &MRI, Register Reg) {
+  auto It = std::find_if(MRI.livein_begin(), MRI.livein_end(),
+                         [&](std::pair<MCRegister, Register> const &e) {
+                           return e.first == Reg.asMCReg();
+                         });
 
+  if (It == MRI.livein_end())
+    return -1;
+  return It - MRI.livein_begin();
+}
+
+static CDSLInstr::Field const *getArgField(MachineRegisterInfo &MRI,
+                                           Register Reg) {
+  uint Idx = getArgIdx(MRI, Reg);
+  if (Idx > CurInstr->fields.size())
+    return nullptr;
+  return &CurInstr->fields[Idx];
+}
+
+static auto getArgInfo(MachineRegisterInfo &MRI, Register Reg) {
+  return std::make_pair(getArgIdx(MRI, Reg), getArgField(MRI, Reg));
+}
+
+static std::pair<PatternError, std::unique_ptr<PatternNode>>
 traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
   switch (Cur.getOpcode()) {
@@ -518,8 +559,6 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     return std::make_pair(SUCCESS, std::move(Node));
   }
   case TargetOpcode::G_BITCAST: {
-    // Bitcasts are normally transparent, but they affect the register
-    // type for G_LOAD (handled via fallthrough)
     auto *Operand = MRI.getOneDef(Cur.getOperand(1).getReg());
     if (!Operand)
       return std::make_pair(PatternError(FORMAT_LOAD, &Cur), nullptr);
@@ -547,9 +586,16 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     if (!MRI.isLiveIn(AddrLI) || !AddrLI.isPhysical())
       return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
 
+    auto [Idx, Field] = getArgInfo(MRI, AddrLI);
+    if (Field == nullptr)
+      return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
+
+    PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(LLT::scalar(32));
+    PatternArgs[Idx].In = true;
+
     auto Node =
         std::make_unique<RegisterNode>(MRI.getType(Cur.getOperand(0).getReg()),
-                                       AddrLI.asMCReg().id() - 41 - 10, 0, 2);
+                                       Field->ident, false, 0, 32, false);
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
@@ -573,16 +619,19 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::COPY: {
     // Immediate Operands
     auto Reg = Cur.getOperand(1).getReg();
-    if (!Reg.isPhysical())
+    auto [Idx, Field] = getArgInfo(MRI, Reg);
+
+    PatternArgs[Idx].In = true;
+    PatternArgs[Idx].ArgTypeStr =
+        makeImmTypeStr(Field->len, Field->type & CDSLInstr::SIGNED);
+
+    if (Field == nullptr)
       return std::make_pair(FORMAT_IMM, nullptr);
 
-    uint Id = Reg.asMCReg().id() - 41 - 10;
-    if (!(Id >= 3 && Id <= 4))
-      return std::make_pair(FORMAT_IMM, nullptr);
-    
-    return std::make_pair(
-        SUCCESS, std::make_unique<RegisterNode>(
-                     MRI.getType(Cur.getOperand(0).getReg()), Id, 0, -1));
+    return std::make_pair(SUCCESS, std::make_unique<RegisterNode>(
+                                       MRI.getType(Cur.getOperand(0).getReg()),
+                                       Field->ident, true, 0, Field->len,
+                                       Field->type & CDSLInstr::SIGNED));
   }
   }
 
@@ -613,18 +662,45 @@ generatePattern(MachineFunction &MF) {
   auto &Store = *Instrs;
 
   auto *Addr = MRI.getOneDef(Store.getOperand(1).getReg());
-  if (Addr == nullptr)
+  if (Addr == nullptr || (Addr = MRI.getOneDef(Addr->getReg())) == nullptr ||
+      Addr->getParent()->getOpcode() != TargetOpcode::COPY)
     return std::make_pair(FORMAT_STORE, nullptr);
-  // todo: check that address is first argument (x10)
+
+  auto [Idx, Field] = getArgInfo(MRI, Addr->getParent()->getOperand(1).getReg());
+  PatternArgs[Idx].Out = true;
 
   auto *Root = MRI.getOneDef(Store.getOperand(0).getReg());
   if (Root == nullptr)
     return std::make_pair(FORMAT_STORE, nullptr);
+  {
+    LLT Type;
+    if (Root->getParent()->getOpcode() == TargetOpcode::G_BITCAST)
+      Type = MRI.getType(Root->getParent()->getOperand(0).getReg());
+    else
+      Type = MRI.getType(Root->getReg());
+    PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(Type);
+  }
 
   return traverse(MRI, *Root->getParent());
 }
 
 bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
+
+  std::string InstName = MF.getName().str().substr(4);
+  std::string InstNameO = InstName;
+  {
+    auto It = std::find_if(
+        PatternGenArgs::Instrs->begin(), PatternGenArgs::Instrs->end(),
+        [&](CDSLInstr const &Inst) { return Inst.name == InstName; });
+    assert(It != PatternGenArgs::Instrs->end() &&
+           "implementation function without instruction definition");
+    CurInstr = It.base();
+  }
+
+  // We use the PatternArgs vector to store additional information
+  // about parameters that may be found during pattern gen.
+  PatternArgs.clear();
+  PatternArgs.append(CurInstr->fields.size(), PatternArg());
 
   auto [Err, Node] = generatePattern(MF);
   if (Err) {
@@ -637,44 +713,26 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
     return true;
   }
 
-  std::string InstName = MF.getName().str().substr(4);
-  std::string InstNameO = InstName;
-
   llvm::outs() << "Pattern for " << InstName << ": " << Node->patternString()
                << '\n';
 
-  // types for: rd, rd (as src), rs1, rs2, imm, imm2
-  std::array<std::string, 6> TypeStrings = {"", "", "", "", "", ""};
-  for (int I = 0; I < 4; I++) {
-    auto Type = Node->getRegisterTy(I - 1);
-    if (Type.isValid()) {
-      if (Type.isFixedVector() && Type.getElementType().isScalar() &&
-          Type.getSizeInBits() == 32) {
-        if (Type.getElementType().getSizeInBits() == 8) {
-          TypeStrings[I] = "PulpV4";
-          InstName += "_V4";
-        } else if (Type.getElementType().getSizeInBits() == 16) {
-          TypeStrings[I] = "PulpV2";
-          InstName += "_V2";
-        } else
-          abort();
-      } else {
-        TypeStrings[I] = "GPR";
-        InstName += "_S";
-      }
+  std::string OutsString;
+  std::string InsString;
+  for (size_t I = 0; I < CurInstr->fields.size() - 1; I++) {
+    if (PatternArgs[I].In) {
+      InsString += PatternArgs[I].ArgTypeStr + ":$" +
+                   std::string(CurInstr->fields[I].ident) + ", ";
+    }
+    if (PatternArgs[I].Out) {
+      bool IO = PatternArgs[I].In;
+      OutsString += PatternArgs[I].ArgTypeStr + ":$" +
+                    std::string(CurInstr->fields[I].ident) +
+                    (IO ? "_wb, " : ", ");
     }
   }
 
-  std::string OutsString =
-      TypeStrings[0] + (TypeStrings[1].empty() ? ":$rd" : ":$rd_wb");
-  std::string InsString;
-  static const auto OpNames =
-      std::array<std::string, 5>{"rd", "rs1", "rs2", "imm", "imm2"};
-  for (int I = 1; I < 6; I++)
-    if (!TypeStrings[I].empty()) {
-      InsString += TypeStrings[I] + ":$" + (OpNames[I - 1]) + ", ";
-    }
   InsString = InsString.substr(0, InsString.size() - 2);
+  OutsString = OutsString.substr(0, OutsString.size() - 2);
 
   auto &OutStream = *PatternGenArgs::OutStream;
 
@@ -682,9 +740,20 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
                "Xcvsimd"
                "], hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
                "isCodeGenOnly = 1";
-  if (!TypeStrings[1].empty())
-    OutStream << ", Constraints = \"$rd = $rd_wb\"";
-  OutStream << " in ";
+
+  OutStream << ", Constraints = \"";
+  {
+    std::string Constr = "";
+    for (size_t I = 0; I < CurInstr->fields.size(); I++) {
+      auto const &Field = CurInstr->fields[I];
+      if (PatternArgs[I].In && PatternArgs[I].Out)
+        Constr += "$" + std::string(Field.ident) + " = $" +
+                  std::string(Field.ident) + "_wb, ";
+    }
+    Constr = Constr.substr(0, Constr.size() - 2);
+    OutStream << Constr;
+  }
+  OutStream << "\" in ";
   OutStream << "def " << InstName << " : RVInst_" << InstNameO << "<(outs "
             << OutsString << "), (ins " << InsString << ")>;\n";
 
