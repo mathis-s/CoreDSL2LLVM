@@ -744,10 +744,9 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
         case Increment:
         case Decrement:
         {
-            bool dec = ts.Peek().type == Decrement;
-            ts.Pop();
+            auto ttype = ts.Pop().type;
             auto expr = ParseExpression(ts, func, build, 15 - 2);
-            return gen_postinc(ts, func, build, dec ? Decrement : Increment, expr, Value());
+            return gen_postinc(ts, func, build, ttype, expr, Value());
         }
         case RBrOpen:
         {
@@ -768,13 +767,6 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                 pop_cur(ts, RBrClose);
 
                 auto v = ParseExpression(ts, func, build, 15 - 2);
-                
-                // Keep track locally if the immediate is used 
-                // signed or unsigned for this instruction.
-                // Using both is undefined behaviour.
-                //for (size_t i = 0; i < IMM_CNT; i++)
-                //    if (v.ll == func->getArg(i + 3) && (len == 0 || len == 32))
-                //        if (!curInstr->SetSignedImm(i, isSigned)) error("internal errro", ts);
 
                 if (len != 0)
                 {
