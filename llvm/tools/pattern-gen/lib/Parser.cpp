@@ -2,6 +2,7 @@
 #include "Token.hpp"
 #include "TokenStream.hpp"
 #include "InstrInfo.hpp"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -14,16 +15,18 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Type.h"
+#include "llvm/Support/AllocatorBase.h"
 #include "llvm/Support/TypeSize.h"
 #include <array>
 #include <cstdlib>
 #include <functional>
+#include <limits>
 #include <regex>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 
-const size_t IMM_CNT = 2;
 using namespace std::placeholders;
 
 struct Value
@@ -56,14 +59,12 @@ struct Variable
     int scope;
 };
 static llvm::DenseMap<uint32_t, llvm::SmallVector<Variable>> variables;
-static llvm::DenseMap<llvm::StringRef, int> immediateNames;
 static int scopeDepth;
 static llvm::BasicBlock* entry;
 static CDSLInstr* curInstr;
 static void reset_globals()
 {
     variables.clear();
-    immediateNames.clear();
     scopeDepth = 0;
     entry = nullptr;
     curInstr = nullptr;
@@ -125,6 +126,12 @@ static bool pop_cur_if(TokenStream& ts, TokenType expected)
         return true;
     }
     return false;
+}
+
+static bool peek_is_type(TokenStream& ts)
+{
+    auto peekT = ts.Peek().type;
+    return peekT == UnsignedKeyword || peekT == SignedKeyword;
 }
 
 static int ceil_to_pow2 (int n)
@@ -309,7 +316,7 @@ Value gen_compare(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& buil
     };
     Op llop = conv[op];
 
-    // CoreDSL2 does not specify explictly under what circumstances ordering
+    // CoreDSL2 does not specify explicitly under what circumstances ordering
     // comparisons are signed or unsigned. Assume usual C behavior.
     // "[Comparison operators] do not take the operand types into account"
     // -> doesn't make sense
@@ -642,6 +649,13 @@ static const Operator precTable[] =
 };
 // clang-format on
 
+static auto find_var(uint32_t identIdx)
+{
+    return std::find_if(
+        curInstr->fields.begin(), curInstr->fields.end(), 
+        [identIdx](CDSLInstr::Field& f){return f.identIdx == identIdx;});
+}
+
 Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build)
 {
     auto& ctx = func->getContext();
@@ -650,35 +664,46 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
         case Identifier:
         {
             auto t = ts.Pop();
-            if (t.ident.str == "X")
-            {
-                pop_cur(ts, ABrOpen);
-                auto ident = pop_cur(ts, Identifier).ident.str;
-                pop_cur(ts, ABrClose);
-                if (ident == "rd")
-                    return {func->getArg(0), 32, false};
-                if (ident == "rs1")
-                    return {func->getArg(1), 32, false};
-                if (ident == "rs2")
-                    return {func->getArg(2), 32, false};
-            }
-            auto iter = immediateNames.find(t.ident.str);
-            if (iter != immediateNames.end())
-            {
-                Value v = {func->getArg(3 + iter->second), false};
-                // In LLVM logic, the immediate is actually 32 bits
-                // (just small enough to fit into 6 signed/unsigned bits)
-                v.bitWidth = 32;
-                //curInstr->SetSignedImm(iter->second, false);
-                return v;
-            }
+            
             // rd is true to skip "if (rd != 0)" checks.
             if (t.ident.str == "rd")
                 return {llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1)};
 
-            auto iter2 = variables.find(t.ident.idx);
-            if (iter2 != variables.end())
-                return iter2->getSecond().back().val;
+            if (t.ident.str == "X")
+            {
+                pop_cur(ts, ABrOpen);
+                auto ident = pop_cur(ts, Identifier).ident;
+                pop_cur(ts, ABrClose);
+                
+                auto match = find_var(ident.idx);
+                if (match != curInstr->fields.end())
+                {
+                    if (!(match->type & CDSLInstr::REG))
+                        error((std::string(t.ident.str) + " is used as a register ID but not defined as such").c_str(), ts);
+
+                    return Value{func->getArg(match - curInstr->fields.begin()), 32, 
+                        (bool)(match->type & CDSLInstr::SIGNED_REG)};
+                }
+            }
+            else
+            {
+                auto match = find_var(t.ident.idx);
+                if (match != curInstr->fields.end())
+                {
+                    if (!(match->type & CDSLInstr::IMM))
+                        error((std::string(t.ident.str) + " is used as an immediate but not defined as such").c_str(), ts);
+                    
+                    auto* arg = func->getArg(match - curInstr->fields.begin());
+
+                    Value v = {arg, (bool)(match->type & CDSLInstr::SIGNED)};
+                    v.bitWidth = 32;
+                    return v;
+                }
+            }
+
+            auto iter = variables.find(t.ident.idx);
+            if (iter != variables.end())
+                return iter->getSecond().back().val;
 
             error(("undefined symbol: " + std::string(t.ident.str)).c_str(), ts);
         }
@@ -719,10 +744,9 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
         case Increment:
         case Decrement:
         {
-            bool dec = ts.Peek().type == Decrement;
-            ts.Pop();
+            auto ttype = ts.Pop().type;
             auto expr = ParseExpression(ts, func, build, 15 - 2);
-            return gen_postinc(ts, func, build, dec ? Decrement : Increment, expr, Value());
+            return gen_postinc(ts, func, build, ttype, expr, Value());
         }
         case RBrOpen:
         {
@@ -743,13 +767,6 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                 pop_cur(ts, RBrClose);
 
                 auto v = ParseExpression(ts, func, build, 15 - 2);
-                
-                // Keep track locally if the immediate is used 
-                // signed or unsigned for this instruction.
-                // Using both is undefined behaviour.
-                for (size_t i = 0; i < IMM_CNT; i++)
-                    if (v.ll == func->getArg(i + 3) && (len == 0 || len == 32))
-                        if (!curInstr->SetSignedImm(i, isSigned)) error("internal errro", ts);
 
                 if (len != 0)
                 {
@@ -807,10 +824,16 @@ Value ParseExpression(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& 
     }
 }
 
-void ParseDeclaration (TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build)
+struct VarDef
 {
-    auto& ctx = func->getContext();
+   std::string_view ident; 
+   uint32_t identIdx;
+   int bitSize;
+   bool sgn;
+};
 
+VarDef ParseDefinition(TokenStream& ts)
+{
     bool sgn = pop_cur_if(ts, SignedKeyword);
     if (!sgn) pop_cur(ts, UnsignedKeyword);
     
@@ -823,6 +846,15 @@ void ParseDeclaration (TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>&
     }
     auto ident = pop_cur(ts, Identifier).ident;
     uint32_t id = ident.idx;
+
+    return VarDef{.ident=ident.str, .identIdx = ident.idx, .bitSize = bitSize, .sgn = sgn};
+}
+
+void ParseDeclaration (TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build)
+{
+    auto& ctx = func->getContext();
+
+    auto [ident, identIdx, bitSize, sgn] = ParseDefinition(ts);
     
     std::optional<Value> init;
     if (pop_cur_if(ts, Assignment))
@@ -852,10 +884,10 @@ void ParseDeclaration (TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>&
     if (init.has_value())
         build.CreateStore(init->ll, v.ll, false);
     
-    if (!variables[id].empty() && variables[id].back().scope == scopeDepth)
-        error(("redefinition: " + std::string(ident.str)).c_str(), ts);
+    if (!variables[identIdx].empty() && variables[identIdx].back().scope == scopeDepth)
+        error(("redefinition: " + std::string(ident)).c_str(), ts);
 
-    variables[id].push_back((Variable){v, scopeDepth});
+    variables[identIdx].push_back((Variable){v, scopeDepth});
 
     pop_cur(ts, Semicolon);
 }
@@ -970,27 +1002,92 @@ void ParseScope(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build)
     pop_cur(ts, CBrClose);
 }
 
+void ParseOperands(TokenStream& ts, CDSLInstr& instr)
+{
+    auto parse_attributes = [](TokenStream& ts)
+    {
+        using enum CDSLInstr::FieldType;
+
+        // Sign bit specifies whether to OR or AND the mask, so just do
+        // ~MY_FIELD to unset myField.
+        const static llvm::DenseMap<llvm::StringRef, uint> attrMap =
+        {
+            {"is_unsigned", ~SIGNED_REG},
+            {"is_signed", SIGNED_REG},
+            {"is_imm", IMM},
+            {"is_reg", REG},
+            {"in", IN},
+            {"out", OUT},
+            {"inout", (IN|OUT)},
+        };
+
+        uint acc = 0;
+        while (ts.Peek().type == ABrOpen)
+        {
+            for (int i = 0; i < 2; i++)
+                pop_cur(ts, ABrOpen);
+
+            auto ident = pop_cur(ts, Identifier).ident;
+            auto iter = attrMap.find(ident.str);
+            if (iter != attrMap.end())
+            {
+                uint op = iter->getSecond();
+                if (op & (1UL << std::numeric_limits<uint>::digits))
+                    acc &= op;
+                else
+                    acc |= op;
+            }
+            
+            for (int i = 0; i < 2; i++)
+                pop_cur(ts, ABrClose);
+        }
+
+        return (CDSLInstr::FieldType)acc;
+    };
+
+    pop_cur(ts, OperandsKeyword);
+    pop_cur(ts, Colon);
+    bool scope = pop_cur_if(ts, CBrOpen);
+    
+    while (peek_is_type(ts))
+    {
+        auto vd = ParseDefinition(ts);
+        uint type = parse_attributes(ts) | CDSLInstr::FieldType::NON_CONST;
+        type = (type & ~CDSLInstr::SIGNED) | (vd.sgn ? CDSLInstr::SIGNED : 0);
+
+        instr.fields.push_back(CDSLInstr::Field{
+            .len = (uint8_t)vd.bitSize,
+            .ident = vd.ident,
+            .identIdx = vd.identIdx,
+            .type = (CDSLInstr::FieldType)type});
+        
+        pop_cur(ts, Semicolon);
+    }
+
+    if (scope) pop_cur(ts, CBrClose);
+}
 
 
-void ParseEncoding (TokenStream& ts, CDSLInstr& instr)
+void ParseEncoding(TokenStream& ts, CDSLInstr& instr)
 {   
     pop_cur(ts, EncodingKeyword);
     pop_cur(ts, Colon);
 
     uint offset = 32;
+    uint preDefIdx = instr.fields.size();
     
-    std::map<std::string_view, int> idents = {{"rd", 0}, {"rs1", 1}, {"rs2", 2}};
     while (1)
     {
-
         switch (ts.Peek().type)
         {
             case IntLiteral:
             {
                 auto litT = ts.Pop();
-                uint len = litT.literal.bitLen;
+                uint8_t len = litT.literal.bitLen;
                 offset -= len;
-                instr.fields.push_back(CDSLInstr::Field::ConstField(litT.literal.value, offset, len));
+                // Create field with 0xFF placeholder index
+                instr.frags.push_back(CDSLInstr::FieldFrag{
+                    0xFF, len, (uint8_t)offset, (uint8_t)offset});
                 break;
             }
             case Identifier:
@@ -1009,23 +1106,32 @@ void ParseEncoding (TokenStream& ts, CDSLInstr& instr)
                 auto len =  (hi - lo + 1);
                 offset -= len;
 
-                auto match = idents.find(idT.ident.str);
-                if (match == idents.end())
+
+                // Check if a field definition for this identifier exists already
+                auto match = std::find_if(instr.fields.begin(), instr.fields.end(), 
+                    [&idT](CDSLInstr::Field& f){return f.identIdx == idT.ident.idx;});
+                if (match == instr.fields.end())
                 {
-                    if (idents.size() >= 5) error("too many immediate definitions", ts);
-                    match = idents.insert(std::make_pair(idT.ident.str, (int)idents.size())).first;
-                    immediateNames.insert(std::make_pair(llvm::StringRef(idT.ident.str), immediateNames.size()));
+                    instr.fields.push_back(CDSLInstr::Field{.len = 0, .ident = idT.ident.str,
+                        .identIdx = idT.ident.idx, .type = CDSLInstr::NON_CONST});
+                    match = &instr.fields.back();
                 }
-                uint32_t immSize = 0;
-                if (match->second > 2)
+                size_t matchIdx = match - instr.fields.begin();
+                if (matchIdx > 255) error("too many instruction fields", ts);
+
+                // for implicitly defined fields we have to accumulate the length of fragments
+                if (matchIdx >= preDefIdx)
+                    match->len += len;
+                else
                 {
-                    auto sizeBegin = std::find_if(idT.ident.str.begin(), idT.ident.str.end(), isdigit);
-                    if (sizeBegin == idT.ident.str.end()) error("immediate does not specify size", ts);
-                    immSize = std::stol(sizeBegin, nullptr, 10);
-                    if (immSize > 31) error("invalid immediate size", ts);
+                    // For explictly defined fields we can do bounds checking
+                    if (hi >= match->len) error("out of bounds", ts);
                 }
                 
-                instr.fields.push_back(CDSLInstr::Field::RegImmField(match->second, offset, lo, len, false, immSize));
+                // Create a field fragment referencing the field definition
+                instr.frags.push_back((CDSLInstr::FieldFrag){
+                    .idx = (uint8_t)matchIdx, .len = (uint8_t)len, .dstOffset = (uint8_t)offset, .srcOffset = (uint8_t)lo});
+                
                 break;
             }
             default: syntax_error(ts);
@@ -1033,10 +1139,22 @@ void ParseEncoding (TokenStream& ts, CDSLInstr& instr)
         if (pop_cur_if(ts, Semicolon))
         {
             if (offset != 0) error("instruction length is not 32 bits", ts);
-            return;
+            break;
         }
         pop_cur(ts, BitwiseConcat);
     }
+
+    // Rather than splitting up the constant bits of the instruction into multiple fields,
+    // we use one trailing constant field of size 32. FieldFragments can index into relevant
+    // sections of this single field.
+    instr.fields.push_back(CDSLInstr::Field{
+        .len = 32, .constV = 0, .type = CDSLInstr::FieldType::CONST});
+    if (instr.fields.size() > 255) error("too many instruction fields", ts);
+    uint8_t constIdx = instr.fields.size() - 1;
+
+    // Reference newly created constant field in all constant frags 
+    for (auto& frag : instr.frags)
+        if (frag.idx == 255) frag.idx = constIdx;
 }
 
 void ParseArguments (TokenStream& ts, CDSLInstr& instr)
@@ -1044,15 +1162,25 @@ void ParseArguments (TokenStream& ts, CDSLInstr& instr)
     pop_cur(ts, AssemblyKeyword);
     pop_cur(ts, Colon);
     
-    // "$rd, $rs1, $rs2, $imm5"
     auto str = std::string(pop_cur(ts, StringLiteral).strLit.str);
-    str = std::regex_replace(str, std::regex("\\{name\\(rd\\)\\}"), "$rd");
-    str = std::regex_replace(str, std::regex("\\{name\\(rs1\\)\\}"), "$rs1");
-    str = std::regex_replace(str, std::regex("\\{name\\(rs2\\)\\}"), "$rs2");
     
-    for (auto const& imm : immediateNames)
-        str = std::regex_replace(str, std::regex(("\\{" + imm.first + "\\}").str()), "$imm" + (imm.second ? std::to_string(imm.second + 1) : ""));
-
+    // To support old-style implicit field definitions, we (also) use the argument string
+    // to determine whether a field is an immediate or a register file index. This is not
+    // a problem when using well-formed instruction definitions, but also not particularly
+    // clean. 
+    for (auto& f : instr.fields)
+    {
+        auto fstr = std::string(f.ident);
+        std::string strNew;
+        strNew = std::regex_replace(str, std::regex("\\{name\\(" + fstr + "\\)\\}"), "$" + fstr);
+        if (strNew != str)
+            f.type = (CDSLInstr::FieldType)(f.type | CDSLInstr::FieldType::REG);
+        str = strNew;
+        strNew = std::regex_replace(str, std::regex("\\{" + fstr + "\\}"), "$" + fstr);
+        if (strNew != str)
+            f.type = (CDSLInstr::FieldType)(f.type | CDSLInstr::FieldType::IMM);
+    }
+    
     instr.argString = str;
     pop_cur(ts, Semicolon);
 }
@@ -1062,7 +1190,31 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     auto& ctx = mod->getContext();
     auto ptrT = llvm::PointerType::get(ctx, 0);
     auto immT = llvm::Type::getInt32Ty(ctx);
-    auto fType = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx), {ptrT, ptrT, ptrT, immT, immT}, false);
+
+    llvm::SmallVector<llvm::Type*, 8> args;
+    llvm::SmallVector<llvm::StringRef, 8> argNames;
+    for (auto const& field : curInstr->fields)
+    {
+        if (!(field.type & CDSLInstr::NON_CONST))
+        {
+            assert(&field == &curInstr->fields.back());
+            break;
+        }
+
+        if (field.type & CDSLInstr::IMM)
+            args.push_back(immT);
+        else
+            args.push_back(ptrT);
+
+        if ((field.type & CDSLInstr::IMM) && (field.type & CDSLInstr::REG))
+            error(("field " + std::string(field.ident) + " of " + instr.name +
+                   " is both immediate and register ID")
+                      .c_str(), ts);
+
+        argNames.push_back(field.ident);
+    }
+
+    auto fType = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx), args, false);
 
     pop_cur(ts, BehaviorKeyword);
     pop_cur(ts, Colon);
@@ -1071,7 +1223,6 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
         llvm::Function::Create(fType, llvm::GlobalValue::ExternalLinkage,
                                 std::string("impl") + std::string(ident.ident.str), mod);
     
-    const std::array<std::string, 5> argNames = {"rd", "rs1", "rs2", "imm", "imm2"};
     for (size_t i = 0; i < argNames.size(); i++)
         func->getArg(i)->setName(argNames[i]);
     
@@ -1079,7 +1230,11 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     // the destination does not overlap with sources.
     // For simulators using this generated code, this means
     // that rd has to be a pointer to a temporary variable.
-    func->getArg(0)->addAttr(llvm::Attribute::NoAlias);
+    for (size_t i = 0; i < curInstr->fields.size(); i++)
+        if (curInstr->fields[i].type & CDSLInstr::OUT)
+        func->getArg(i)->addAttr(llvm::Attribute::NoAlias);
+
+    
     entry = llvm::BasicBlock::Create(ctx, "", func);
     llvm::IRBuilder<> build(entry);
 
@@ -1113,22 +1268,12 @@ std::vector<CDSLInstr> ParseCoreDSL2(TokenStream& ts, llvm::Module* mod)
             CDSLInstr instr{.name = std::string(ident.ident.str)};
             curInstr = &instr;
 
-            while (ts.Peek().type != CBrClose)
-            {
-                switch (ts.Peek().type)
-                {
-                    case EncodingKeyword:
-                        ParseEncoding(ts, instr);
-                        break;
-                    case AssemblyKeyword:
-                        ParseArguments(ts, instr);
-                        break;
-                    case BehaviorKeyword:
-                        ParseBehaviour(ts, instr, mod, ident);
-                        break;
-                    default: syntax_error(ts);
-                }
-            }
+            if (ts.Peek().type == OperandsKeyword)
+                ParseOperands(ts, instr);
+            ParseEncoding(ts, instr);
+            ParseArguments(ts, instr);
+            ParseBehaviour(ts, instr, mod, ident);
+
             pop_cur(ts, CBrClose);
             instrs.push_back(instr); 
         }

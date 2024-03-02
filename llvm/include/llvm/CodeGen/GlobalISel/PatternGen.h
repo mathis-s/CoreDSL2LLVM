@@ -18,11 +18,14 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/Support/CodeGen.h"
 
+struct CDSLInstr;
+
 namespace llvm {
 
 namespace PatternGenArgs {
 extern std::ostream *OutStream;
 extern std::string *ExtName;
+extern std::vector<CDSLInstr> const *Instrs;
 } // namespace PatternGenArgs
 
 class BlockFrequencyInfo;
