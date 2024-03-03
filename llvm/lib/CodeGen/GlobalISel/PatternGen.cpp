@@ -150,10 +150,11 @@ static const std::unordered_map<unsigned, std::string> cmpStr = {
 };
 
 std::string lltToString(LLT Llt) {
-  std::string TypeStr;
-  llvm::raw_string_ostream TypeStrS(TypeStr);
-  Llt.print(TypeStrS);
-  return TypeStr;
+  if (Llt.isFixedVector())
+    return "v" + std::to_string(Llt.getElementCount().getFixedValue()) + lltToString(Llt.getElementType()); 
+  if (Llt.isScalar())
+    return "i" + std::to_string(Llt.getSizeInBits());
+  assert(0 && "invalid type");
 }
 
 std::string lltToRegTypeStr(LLT Type) {
