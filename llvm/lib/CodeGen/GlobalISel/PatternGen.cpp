@@ -686,8 +686,6 @@ generatePattern(MachineFunction &MF) {
 }
 
 bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
-  
-  MF.dump();
 
   std::string InstName = MF.getName().str().substr(4);
   std::string InstNameO = InstName;
