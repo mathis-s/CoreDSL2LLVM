@@ -684,6 +684,7 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                     return Value{func->getArg(match - curInstr->fields.begin()), 32, 
                         (bool)(match->type & CDSLInstr::SIGNED_REG)};
                 }
+                error(("undefined register ID: " + std::string(ident.str)).c_str(), ts);
             }
             else
             {
@@ -1232,7 +1233,7 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     // that rd has to be a pointer to a temporary variable.
     for (size_t i = 0; i < curInstr->fields.size(); i++)
         if (curInstr->fields[i].type & CDSLInstr::OUT)
-        func->getArg(i)->addAttr(llvm::Attribute::NoAlias);
+            func->getArg(i)->addAttr(llvm::Attribute::NoAlias);
 
     
     entry = llvm::BasicBlock::Create(ctx, "", func);
