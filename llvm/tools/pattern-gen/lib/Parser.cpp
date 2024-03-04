@@ -1007,19 +1007,19 @@ void ParseOperands(TokenStream& ts, CDSLInstr& instr)
 {
     auto parse_attributes = [](TokenStream& ts)
     {
-        using enum CDSLInstr::FieldType;
+        using FieldType = CDSLInstr::FieldType;
 
         // Sign bit specifies whether to OR or AND the mask, so just do
         // ~MY_FIELD to unset myField.
         const static llvm::DenseMap<llvm::StringRef, uint> attrMap =
         {
-            {"is_unsigned", ~SIGNED_REG},
-            {"is_signed", SIGNED_REG},
-            {"is_imm", IMM},
-            {"is_reg", REG},
-            {"in", IN},
-            {"out", OUT},
-            {"inout", (IN|OUT)},
+            {"is_unsigned", ~FieldType::SIGNED_REG},
+            {"is_signed", FieldType::SIGNED_REG},
+            {"is_imm", FieldType::IMM},
+            {"is_reg", FieldType::REG},
+            {"in", FieldType::IN},
+            {"out", FieldType::OUT},
+            {"inout", (FieldType::IN|FieldType::OUT)},
         };
 
         uint acc = 0;
