@@ -400,7 +400,7 @@ struct ConstantNode : public PatternNode {
       : PatternNode(PN_Constant, Type), Constant(c) {}
 
   std::string patternString(int Indent = 0) override {
-    return "(i32 " + std::to_string(Constant) + ")";
+    return "(i32 " + std::to_string((int)Constant) + ")";
   }
 
   static bool classof(const PatternNode *p) {
