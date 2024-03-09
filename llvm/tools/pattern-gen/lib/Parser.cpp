@@ -2,6 +2,7 @@
 #include "Token.hpp"
 #include "TokenStream.hpp"
 #include "InstrInfo.hpp"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Attributes.h"
@@ -269,12 +270,22 @@ Value gen_subscript(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& bu
     return left;
 }
 
+void check_lvalue(Value& v, TokenStream& ts, llvm::BasicBlock* bb)
+{
+    if (!v.isLValue)
+        error("cannot assign rvalue", ts);
+
+    // For register arguments, add no alias if assigned
+    auto func = bb->getParent();
+    if (auto *arg = llvm::dyn_cast<llvm::Argument>(v.ll))
+        arg->addAttr(llvm::Attribute::NoAlias);
+}
+
 Value gen_assign(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left, Value right)
 {
     auto& ctx = func->getContext();
 
-    if (!left.isLValue)
-        error("cannot assign rvalue", ts);
+    check_lvalue(left, ts, build.GetInsertBlock());
 
     if (left.bitWidth < right.bitWidth && op == Assignment)
         error("implicit truncation", ts);
@@ -581,8 +592,7 @@ Value gen_inc(bool isPost, TokenStream& ts, llvm::Function* func, llvm::IRBuilde
 {
     auto& ctx = func->getContext();
 
-    if (!left.isLValue)
-        error("cannot assign rvalue", ts);
+    check_lvalue(left, ts, build.GetInsertBlock());
     
     auto pre = build.CreateLoad(llvm::Type::getIntNTy(ctx, left.bitWidth), left.ll);
     auto post = build.CreateAdd(pre, llvm::ConstantInt::get(pre->getType(), (op == Decrement) ? -1 : 1));
