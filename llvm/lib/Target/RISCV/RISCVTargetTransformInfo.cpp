@@ -324,7 +324,7 @@ RISCVTTIImpl::getRegisterBitWidth(TargetTransformInfo::RegisterKind K) const {
   case TargetTransformInfo::RGK_FixedWidthVector:
     return TypeSize::getFixed(ST->useRVVForFixedLengthVectors()
                                   ? LMUL * ST->getRealMinVLen()
-                                  : (ST->hasVendorXCVsimd() ? 32 : 0));
+                                  : (ST->hasGPR32V() ? 32 : 0));
   case TargetTransformInfo::RGK_ScalableVector:
     return TypeSize::getScalable(
         (ST->hasVInstructions() &&
@@ -387,9 +387,9 @@ InstructionCost RISCVTTIImpl::getShuffleCost(TTI::ShuffleKind Kind,
 
   std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(Tp);
 
-  if (ST->hasVendorXCVsimd())
+  if (ST->hasGPR32V()) {
     return 1; // placeholder
-
+  }
 
   // First, handle cases where having a fixed length vector enables us to
   // give a more accurate cost than falling back to generic scalable codegen.
@@ -1748,7 +1748,7 @@ InstructionCost RISCVTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
                                               const Instruction *I) {
   EVT VT = TLI->getValueType(DL, Src, true);
   // Type legalization can't handle structs
-  if (VT == MVT::Other || ST->hasVendorXCVsimd())
+  if (VT == MVT::Other || ST->hasGPR32V())
     return BaseT::getMemoryOpCost(Opcode, Src, Alignment, AddressSpace,
                                   CostKind, OpInfo, I);
 
