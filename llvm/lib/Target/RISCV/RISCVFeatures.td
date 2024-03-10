@@ -37,7 +37,7 @@ class RISCVExtension<string name, int major, int minor, string desc,
   bit Experimental = false;
 }
 
-// The groupID/bitmask of RISCVExtension is used to retrieve a specific bit value 
+// The groupID/bitmask of RISCVExtension is used to retrieve a specific bit value
 // from __riscv_feature_bits based on the groupID and bitmask.
 // groupID - groupID of extension
 // bitPos  - bit position of extension bitmask
@@ -996,6 +996,12 @@ def FeatureStdExtSvinval
 def HasStdExtSvinval : Predicate<"Subtarget->hasStdExtSvinval()">,
                        AssemblerPredicate<(all_of FeatureStdExtSvinval),
                            "'Svinval' (Fine-Grained Address-Translation Cache Invalidation)">;
+
+def FeatureGPR32V : SubtargetFeature<"gpr32v", "HasGPR32V", "true", "TODO">;
+def HasGPR32V
+   : Predicate<"Subtarget->hasGPR32V)">,
+     AssemblerPredicate<(any_of FeatureGPR32V),
+                        "'GPR32V' (TODO)">;
 
 def FeatureStdExtSvnapot
     : RISCVExtension<"svnapot", 1, 0,
