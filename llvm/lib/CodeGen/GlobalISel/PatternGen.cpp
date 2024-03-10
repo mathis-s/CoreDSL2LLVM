@@ -744,11 +744,11 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   auto [Err, Node] = generatePattern(MF);
   if (Err) {
-    llvm::outs() << "Pattern Generation failed for " << MF.getName() << ": "
+    llvm::errs() << "Pattern Generation failed for " << MF.getName() << ": "
                  << Errors[Err.Type] << '\n';
     if (Err.Inst) {
-      llvm::outs() << "Match failure occurred here:\n";
-      llvm::outs() << *Err.Inst << "\n";
+      llvm::errs() << "Match failure occurred here:\n";
+      llvm::errs() << *Err.Inst << "\n";
     }
     return true;
   }
