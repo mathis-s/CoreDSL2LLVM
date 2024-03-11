@@ -417,10 +417,13 @@ struct RegisterNode : public PatternNode {
   int Offset;
   int Size;
   bool Sext;
-  RegisterNode(LLT Type, StringRef Name, bool IsImm, int Offset, int Size,
-               bool Sext)
+
+  size_t RegIdx;
+
+  RegisterNode(LLT Type, StringRef Name, size_t RegIdx, bool IsImm, int Offset,
+               int Size, bool Sext)
       : PatternNode(PN_Register, Type), IsImm(IsImm), Name(Name),
-        Offset(Offset), Size(Size), Sext(Sext) {}
+        Offset(Offset), Size(Size), Sext(Sext), RegIdx(RegIdx) {}
 
   std::string patternString(int Indent = 0) override {
 
@@ -572,7 +575,10 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     // if the bitcasted value is a register access, we need to patch the
     // register access type
     if (auto *AsRegNode = llvm::dyn_cast<RegisterNode>(Node.get()))
+    {
       AsRegNode->Type = MRI.getType(Cur.getOperand(0).getReg());
+      PatternArgs[AsRegNode->RegIdx].ArgTypeStr = lltToRegTypeStr(AsRegNode->Type);
+    }
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
@@ -592,12 +598,13 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     if (Field == nullptr)
       return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
 
-    PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(LLT::scalar(32));
+    PatternArgs[Idx].ArgTypeStr =
+        lltToRegTypeStr(MRI.getType(Cur.getOperand(0).getReg()));
     PatternArgs[Idx].In = true;
 
     auto Node =
         std::make_unique<RegisterNode>(MRI.getType(Cur.getOperand(0).getReg()),
-                                       Field->ident, false, 0, 32, false);
+                                       Field->ident, Idx, false, 0, 32, false);
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
@@ -632,7 +639,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::make_unique<RegisterNode>(
                                        MRI.getType(Cur.getOperand(0).getReg()),
-                                       Field->ident, true, 0, Field->len,
+                                       Field->ident, Idx, true, 0, Field->len,
                                        Field->type & CDSLInstr::SIGNED));
   }
   }
@@ -672,19 +679,20 @@ generatePattern(MachineFunction &MF) {
       getArgInfo(MRI, Addr->getParent()->getOperand(1).getReg());
   PatternArgs[Idx].Out = true;
 
-  auto *Root = MRI.getOneDef(Store.getOperand(0).getReg());
-  if (Root == nullptr)
+  auto *RootO = MRI.getOneDef(Store.getOperand(0).getReg());
+  if (RootO == nullptr)
     return std::make_pair(FORMAT_STORE, nullptr);
+  auto *Root = RootO->getParent();
   {
     LLT Type;
-    if (Root->getParent()->getOpcode() == TargetOpcode::G_BITCAST)
-      Type = MRI.getType(Root->getParent()->getOperand(0).getReg());
+    if (Root->getOpcode() == TargetOpcode::G_BITCAST)
+      Type = MRI.getType(Root->getOperand(1).getReg());
     else
-      Type = MRI.getType(Root->getReg());
+      Type = MRI.getType(Root->getOperand(0).getReg());
     PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(Type);
   }
 
-  return traverse(MRI, *Root->getParent());
+  return traverse(MRI, *Root);
 }
 
 bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
@@ -741,8 +749,7 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   OutStream << "let ";
   if (!PatternGenArgs::Args.Predicates.empty()) {
-    OutStream << "Predicates = [" << PatternGenArgs::Args.Predicates
-              << "], ";
+    OutStream << "Predicates = [" << PatternGenArgs::Args.Predicates << "], ";
   }
   OutStream << "hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
                "isCodeGenOnly = 1";
