@@ -13,6 +13,7 @@
 #ifndef LLVM_CODEGEN_GLOBALISEL_PATTERNGEN_H
 #define LLVM_CODEGEN_GLOBALISEL_PATTERNGEN_H
 
+#include "../../tools/pattern-gen/PatternGen.hpp"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -24,8 +25,8 @@ namespace llvm {
 
 namespace PatternGenArgs {
 extern std::ostream *OutStream;
-extern std::string *ExtName;
 extern std::vector<CDSLInstr> const *Instrs;
+extern PGArgsStruct Args;
 } // namespace PatternGenArgs
 
 class BlockFrequencyInfo;
