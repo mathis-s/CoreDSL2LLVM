@@ -26,18 +26,17 @@
 #include <utility>
 
 int GeneratePatterns(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
-                     std::ostream &ostream, std::ostream &ostreamIR, std::string extName,
-                     llvm::CodeGenOptLevel optLevel, std::string mattr) {
+                     std::ostream &ostream, std::ostream &ostreamIR, PGArgsStruct args) {
   // All other code in this file is called during code generation
   // by the LLVM pipeline. We thus "pass" arguments as globals.
   llvm::PatternGenArgs::OutStream = &ostream;
-  llvm::PatternGenArgs::ExtName = &extName;
+  llvm::PatternGenArgs::Args = args;
   llvm::PatternGenArgs::Instrs = &instrs;
 
-  int rv = RunPatternGenPipeline(M, mattr, optLevel, ostreamIR);
+  int rv = RunPatternGenPipeline(M, args.Mattr, args.OptLevel, ostreamIR);
 
   llvm::PatternGenArgs::OutStream = nullptr;
-  llvm::PatternGenArgs::ExtName = nullptr;
+  llvm::PatternGenArgs::Args = PGArgsStruct();
   llvm::PatternGenArgs::Instrs = nullptr;
 
   return rv;

@@ -62,8 +62,8 @@ static const std::string CoveragePrefix;
 #endif
 
 std::ostream *PatternGenArgs::OutStream = nullptr;
-std::string *PatternGenArgs::ExtName = nullptr;
 std::vector<CDSLInstr> const *PatternGenArgs::Instrs = nullptr;
+PGArgsStruct PatternGenArgs::Args;
 
 struct PatternArg {
   std::string ArgTypeStr;
@@ -151,7 +151,8 @@ static const std::unordered_map<unsigned, std::string> cmpStr = {
 
 std::string lltToString(LLT Llt) {
   if (Llt.isFixedVector())
-    return "v" + std::to_string(Llt.getElementCount().getFixedValue()) + lltToString(Llt.getElementType()); 
+    return "v" + std::to_string(Llt.getElementCount().getFixedValue()) +
+           lltToString(Llt.getElementType());
   if (Llt.isScalar())
     return "i" + std::to_string(Llt.getSizeInBits());
   assert(0 && "invalid type");
@@ -667,7 +668,8 @@ generatePattern(MachineFunction &MF) {
       Addr->getParent()->getOpcode() != TargetOpcode::COPY)
     return std::make_pair(FORMAT_STORE, nullptr);
 
-  auto [Idx, Field] = getArgInfo(MRI, Addr->getParent()->getOperand(1).getReg());
+  auto [Idx, Field] =
+      getArgInfo(MRI, Addr->getParent()->getOperand(1).getReg());
   PatternArgs[Idx].Out = true;
 
   auto *Root = MRI.getOneDef(Store.getOperand(0).getReg());
@@ -737,9 +739,12 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   auto &OutStream = *PatternGenArgs::OutStream;
 
-  OutStream << "let Predicates = [HasExt"
-               "Xcvsimd"
-               "], hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
+  OutStream << "let ";
+  if (!PatternGenArgs::Args.Predicates.empty()) {
+    OutStream << "Predicates = [" << PatternGenArgs::Args.Predicates
+              << "], ";
+  }
+  OutStream << "hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
                "isCodeGenOnly = 1";
 
   OutStream << ", Constraints = \"";
