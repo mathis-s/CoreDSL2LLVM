@@ -52,7 +52,7 @@ static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
 static cl::opt<std::string>
     Mattr("mattr2", cl::desc("Target specific attributes"),
           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-          cl::init("+m,+unaligned-scalar-mem,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+          cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
 
 // Determine optimization level.
 static cl::opt<char>
@@ -60,6 +60,9 @@ static cl::opt<char>
              cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] "
                       "(default = '-O2')"),
              cl::cat(ToolOptions), cl::init('3'));
+
+static cl::opt<std::string> Predicates(
+    "p", cl::desc("Predicate(s) used for instructions in output TableGen"), cl::cat(ToolOptions), cl::init("HasVendorXCValu"));
 
 #include <iostream>
 namespace fs = std::filesystem;
@@ -105,6 +108,8 @@ int main(int argc, char **argv) {
   if (verifyModule(*mod, &errs()))
     return -1;
 
+  llvm::errs() << *mod << "\n";
+
   // TODO: use force
 
   llvm::CodeGenOptLevel Opt;
@@ -125,6 +130,12 @@ int main(int argc, char **argv) {
 
   if (!Skip) {
     PrintInstrsAsTableGen(instrs, formatOut);
-    GeneratePatterns(mod.get(), instrs, patternOut, irOut, ExtName, Opt, Mattr);
+
+    PGArgsStruct Args{.ExtName = ExtName,
+                      .Mattr = Mattr,
+                      .OptLevel = Opt,
+                      .Predicates = Predicates};
+
+    GeneratePatterns(mod.get(), instrs, patternOut, irOut, Args);
   }
 }
