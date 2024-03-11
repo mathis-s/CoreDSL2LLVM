@@ -274,11 +274,21 @@ void check_lvalue(Value& v, TokenStream& ts, llvm::BasicBlock* bb)
 {
     if (!v.isLValue)
         error("cannot assign rvalue", ts);
-
-    // For register arguments, add no alias if assigned
-    auto func = bb->getParent();
-    if (auto *arg = llvm::dyn_cast<llvm::Argument>(v.ll))
-        arg->addAttr(llvm::Attribute::NoAlias);
+    
+    llvm::Value* ll = v.ll;
+    // For register arguments, add "no alias" if assigned for vectorization to work.
+    while (1)
+    {
+        if (auto *arg = llvm::dyn_cast<llvm::Argument>(ll))
+        {
+            arg->addAttr(llvm::Attribute::NoAlias);
+            break;
+        }
+        // Peek through GEPs
+        if (auto* gep = llvm::dyn_cast<llvm::GetElementPtrInst>(ll))
+            ll = gep->getPointerOperand();
+        else break;
+    }
 }
 
 Value gen_assign(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left, Value right)
