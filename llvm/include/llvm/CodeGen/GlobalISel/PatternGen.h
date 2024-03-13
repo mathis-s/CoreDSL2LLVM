@@ -13,7 +13,7 @@
 #ifndef LLVM_CODEGEN_GLOBALISEL_PATTERNGEN_H
 #define LLVM_CODEGEN_GLOBALISEL_PATTERNGEN_H
 
-#include "../../tools/pattern-gen/PatternGen.hpp"
+#include "../../../tools/pattern-gen/PatternGen.hpp"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
