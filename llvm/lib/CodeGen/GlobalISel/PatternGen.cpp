@@ -663,6 +663,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_UMAX:
   case TargetOpcode::G_SMIN:
   case TargetOpcode::G_UMIN:
+  case TargetOpcode::G_EXTRACT_VECTOR_ELT:
   case TargetOpcode::G_SHL:
   case TargetOpcode::G_LSHR:
   case TargetOpcode::G_ASHR: {
