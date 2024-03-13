@@ -181,6 +181,7 @@ struct PatternNode {
   enum PatternNodeKind {
     PN_NOp,
     PN_Binop,
+    PN_Ternop,
     PN_Shuffle,
     PN_Compare,
     PN_Unop,
@@ -213,11 +214,11 @@ struct NOpNode : public PatternNode {
       : PatternNode(PN_NOp, Type), Op(Op), Operands(std::move(Operands)) {}
 
   std::string patternString(int Indent = 0) override {
-    static const std::unordered_map<int, std::string> BinopStr = {
+    static const std::unordered_map<int, std::string> NOpStr = {
         {TargetOpcode::G_BUILD_VECTOR, "build_vector"},
         {TargetOpcode::G_SELECT, "vselect"}};
 
-    std::string S = "(" + std::string(BinopStr.at(Op)) + " ";
+    std::string S = "(" + std::string(NOpStr.at(Op)) + " ";
     for (auto &Operand : Operands)
       S += Operand->patternString(Indent + 1) + ", ";
     if (!Operands.empty())
@@ -238,6 +239,49 @@ struct NOpNode : public PatternNode {
     return LLT(MVT::INVALID_SIMPLE_VALUE_TYPE);
   }
   static bool classof(const PatternNode *P) { return P->getKind() == PN_NOp; }
+};
+
+struct TernopNode : public PatternNode {
+  int Op;
+  std::unique_ptr<PatternNode> First;
+  std::unique_ptr<PatternNode> Second;
+  std::unique_ptr<PatternNode> Third;
+
+  TernopNode(LLT Type, int Op, std::unique_ptr<PatternNode> First,
+            std::unique_ptr<PatternNode> Second, std::unique_ptr<PatternNode> Third)
+      : PatternNode(PN_Ternop, Type), Op(Op), First(std::move(First)),
+        Second(std::move(Second)), Third(std::move(Third)) {}
+
+  std::string patternString(int Indent = 0) override {
+    static const std::unordered_map<int, std::string> BinopStr = {
+        {TargetOpcode::G_INSERT_VECTOR_ELT, "vector_insert"}};
+
+    std::string TypeStr = lltToString(Type);
+    std::string OpString = "(" + std::string(BinopStr.at(Op)) + " " +
+                           First->patternString(Indent + 1) + ", " +
+                           Second->patternString(Indent + 1) + ", " +
+                           Third->patternString(Indent + 1) + ")";
+
+    // Explicitly specifying types for all ops increases pattern compile time
+    // significantly, so we only do for ops where deduction fails otherwise.
+    bool PrintType = false;
+
+    if (PrintType)
+      return "(" + TypeStr + " " + OpString + ")";
+    return OpString;
+  }
+
+  LLT getRegisterTy(int OperandId) const override {
+    if (OperandId == -1)
+      return Type;
+
+    auto FirstT = First->getRegisterTy(OperandId);
+    auto SecondT = Second->getRegisterTy(OperandId);
+    auto ThirdT = Third->getRegisterTy(OperandId);
+    return FirstT.isValid() ? FirstT : (SecondT.isValid() ? SecondT : ThirdT);
+  }
+
+  static bool classof(const PatternNode *p) { return p->getKind() == PN_Ternop; }
 };
 
 struct BinopNode : public PatternNode {
@@ -489,6 +533,35 @@ traverseOperand(MachineRegisterInfo &MRI, MachineInstr &Cur, int i) {
     return std::make_pair(Err, nullptr);
 
   return std::make_pair(SUCCESS, std::move(Node));
+}
+
+static std::tuple<PatternError, std::unique_ptr<PatternNode>,
+                  std::unique_ptr<PatternNode>, std::unique_ptr<PatternNode>>
+traverseTernopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
+                      int start = 1) {
+  auto *First = MRI.getOneDef(Cur.getOperand(start).getReg());
+  if (!First)
+    return std::make_tuple(PatternError(FORMAT, &Cur), nullptr, nullptr, nullptr);
+  auto *Second = MRI.getOneDef(Cur.getOperand(start + 1).getReg());
+  if (!Second)
+    return std::make_tuple(PatternError(FORMAT, &Cur), nullptr, nullptr, nullptr);
+  auto *Third = MRI.getOneDef(Cur.getOperand(start + 2).getReg());
+  if (!Third)
+    return std::make_tuple(PatternError(FORMAT, &Cur), nullptr, nullptr, nullptr);
+
+  auto [ErrFirst, NodeFirst] = traverse(MRI, *First->getParent());
+  if (ErrFirst)
+    return std::make_tuple(ErrFirst, nullptr, nullptr, nullptr);
+
+  auto [ErrSecond, NodeSecond] = traverse(MRI, *Second->getParent());
+  if (ErrSecond)
+    return std::make_tuple(ErrSecond, nullptr, nullptr, nullptr);
+
+  auto [ErrThird, NodeThird] = traverse(MRI, *Third->getParent());
+  if (ErrThird)
+    return std::make_tuple(ErrThird, nullptr, nullptr, nullptr);
+
+  return std::make_tuple(SUCCESS, std::move(NodeFirst), std::move(NodeSecond), std::move(NodeThird));
 }
 
 static std::tuple<PatternError, std::unique_ptr<PatternNode>,
