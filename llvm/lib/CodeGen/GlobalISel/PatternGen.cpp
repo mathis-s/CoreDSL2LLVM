@@ -668,6 +668,17 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
+  case TargetOpcode::G_INSERT_VECTOR_ELT: {
+    auto [Err, NodeFirst, NodeSecond, NodeThird] = traverseTernopOperands(MRI, Cur);
+    if (Err)
+      return std::make_pair(Err, nullptr);
+
+    auto Node = std::make_unique<TernopNode>(
+        MRI.getType(Cur.getOperand(0).getReg()), Cur.getOpcode(),
+        std::move(NodeFirst), std::move(NodeSecond), std::move(NodeThird));
+
+    return std::make_pair(SUCCESS, std::move(Node));
+  }
   case TargetOpcode::G_ADD:
   case TargetOpcode::G_SUB:
   case TargetOpcode::G_MUL:
