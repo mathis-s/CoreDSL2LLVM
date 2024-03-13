@@ -598,6 +598,30 @@ traverseUnopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
   return std::make_tuple(SUCCESS, std::move(NodeR));
 }
 
+static std::tuple<PatternError, std::vector<std::unique_ptr<PatternNode>>>
+traverseNOpOperands(MachineRegisterInfo &MRI, MachineInstr &Cur, size_t N,
+                      int start = 1) {
+  // llvm::outs() << "traverseNOpOperands" << '\n';
+  std::vector<std::unique_ptr<PatternNode>> operands(N);
+  for (size_t i = 0; i < N; i++) {
+      // llvm::outs() << "i=" << i << '\n';
+      auto *Node = MRI.getOneDef(Cur.getOperand(start + i).getReg());
+      if (!Node) {
+        // llvm::outs() << "Err" << '\n';
+        return std::make_tuple(PatternError(FORMAT, &Cur), std::vector<std::unique_ptr<PatternNode>>());
+      }
+
+      auto [Err_, Node_] = traverse(MRI, *Node->getParent());
+      if (Err_) {
+        // llvm::outs() << "Err2" << '\n';
+        return std::make_tuple(Err_, std::vector<std::unique_ptr<PatternNode>>());
+      }
+      // return std::make_tuple(SUCCESS, std::move(NodeR));
+      operands[i] = std::move(Node_);
+  }
+  return std::make_tuple(SUCCESS, std::move(operands));
+}
+
 static int getArgIdx(MachineRegisterInfo &MRI, Register Reg) {
   auto It = std::find_if(MRI.livein_begin(), MRI.livein_end(),
                          [&](std::pair<MCRegister, Register> const &e) {
