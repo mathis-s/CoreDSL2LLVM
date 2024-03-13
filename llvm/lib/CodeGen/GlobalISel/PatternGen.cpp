@@ -445,7 +445,12 @@ struct ConstantNode : public PatternNode {
       : PatternNode(PN_Constant, Type), Constant(c) {}
 
   std::string patternString(int Indent = 0) override {
-    return "(i32 " + std::to_string((int)Constant) + ")";
+    if (Type.isFixedVector()) {
+      std::string TypeStr = lltToString(Type);
+      return "(" + TypeStr + " (i32 " + std::to_string((int)Constant) + "))";
+    } else {
+      return "(i32 " + std::to_string((int)Constant) + ")";
+    }
   }
 
   static bool classof(const PatternNode *p) {
@@ -744,6 +749,11 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     return std::make_pair(SUCCESS, std::make_unique<ConstantNode>(
                                        MRI.getType(Cur.getOperand(0).getReg()),
                                        Imm->getLimitedValue()));
+  }
+  case TargetOpcode::G_IMPLICIT_DEF: {
+    return std::make_pair(SUCCESS, std::make_unique<ConstantNode>(
+                                       MRI.getType(Cur.getOperand(0).getReg()),
+                                       0));
   }
   case TargetOpcode::G_ICMP: {
     auto Pred = Cur.getOperand(1);
