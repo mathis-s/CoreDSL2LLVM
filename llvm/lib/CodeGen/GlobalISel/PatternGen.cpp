@@ -678,6 +678,10 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
+  case TargetOpcode::G_SEXT:
+  case TargetOpcode::G_ZEXT:
+  case TargetOpcode::G_VECREDUCE_ADD:
+  case TargetOpcode::G_TRUNC:
   case TargetOpcode::G_ABS: {
 
     auto [Err, NodeR] = traverseUnopOperands(MRI, Cur);
