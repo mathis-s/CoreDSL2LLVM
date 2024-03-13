@@ -654,6 +654,20 @@ static std::pair<PatternError, std::unique_ptr<PatternNode>>
 traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
   switch (Cur.getOpcode()) {
+  case TargetOpcode::G_BUILD_VECTOR: {
+    // llvm::outs() << "case TargetOpcode::G_BUILD_VECTOR" << '\n';
+    size_t N = Cur.getNumOperands();
+    // llvm::outs() << "N=" << N << '\n';
+    auto [Err, operands] = traverseNOpOperands(MRI, Cur, N - 1);
+    if (Err)
+      return std::make_pair(Err, nullptr);
+    auto Node = std::make_unique<NOpNode>(
+        MRI.getType(Cur.getOperand(0).getReg()), Cur.getOpcode(),
+        std::move(operands));
+        // std::move(operands));
+
+    return std::make_pair(SUCCESS, std::move(Node));
+  }
   case TargetOpcode::G_ADD:
   case TargetOpcode::G_SUB:
   case TargetOpcode::G_MUL:
