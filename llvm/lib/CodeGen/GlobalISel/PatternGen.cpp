@@ -726,6 +726,35 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
+  case TargetOpcode::G_SHUFFLE_VECTOR: {
+    assert(Cur.getOperand(1).isReg() && "expected register");
+    auto *First = MRI.getOneDef(Cur.getOperand(1).getReg());
+    if (!First)
+      return std::make_pair(PatternError(FORMAT, &Cur), nullptr);
+    assert(Cur.getOperand(2).isReg() && "expected register");
+    auto *Second = MRI.getOneDef(Cur.getOperand(2).getReg());
+    if (!Second)
+      return std::make_pair(PatternError(FORMAT, &Cur), nullptr);
+    assert(Cur.getOperand(3).isShuffleMask() && "expected shufflemask");
+    ArrayRef<int> Mask = Cur.getOperand(3).getShuffleMask();
+    // if (!Mask)
+    //   return std::make_pair(PatternError(FORMAT, &Cur), nullptr);
+
+    auto [ErrFirst, NodeFirst] = traverse(MRI, *First->getParent());
+    if (ErrFirst)
+      return std::make_pair(ErrFirst, nullptr);
+
+    auto [ErrSecond, NodeSecond] = traverse(MRI, *Second->getParent());
+    if (ErrSecond)
+      return std::make_pair(ErrSecond, nullptr);
+
+    assert(Cur.getOperand(0).isReg() && "expected register");
+    auto Node = std::make_unique<ShuffleNode>(
+        MRI.getType(Cur.getOperand(0).getReg()), Cur.getOpcode(),
+        std::move(NodeFirst), std::move(NodeSecond), Mask);
+
+    return std::make_pair(SUCCESS, std::move(Node));
+  }
   case TargetOpcode::G_ADD:
   case TargetOpcode::G_SUB:
   case TargetOpcode::G_MUL:
