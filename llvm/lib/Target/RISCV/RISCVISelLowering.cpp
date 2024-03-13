@@ -663,6 +663,10 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::CLEAR_CACHE, MVT::Other, Custom);
   }
 
+  if (Subtarget.hasGPR32V()) {
+    setBooleanVectorContents(ZeroOrNegativeOneBooleanContent);
+    // setBooleanVectorContents(ZeroOrOneBooleanContent);
+  }
   if (Subtarget.hasVInstructions()) {
     setBooleanVectorContents(ZeroOrOneBooleanContent);
 
