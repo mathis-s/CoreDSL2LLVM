@@ -241,6 +241,53 @@ struct NOpNode : public PatternNode {
   static bool classof(const PatternNode *P) { return P->getKind() == PN_NOp; }
 };
 
+struct ShuffleNode : public PatternNode {
+  int Op;
+  std::unique_ptr<PatternNode> First;
+  std::unique_ptr<PatternNode> Second;
+  // std::unique_ptr<ArrayRef<int>> Mask;
+  ArrayRef<int> Mask;
+
+  ShuffleNode(LLT Type, int Op, std::unique_ptr<PatternNode> First,
+            std::unique_ptr<PatternNode> Second, ArrayRef<int> Mask)
+            // std::unique_ptr<PatternNode> Second, std::unique_ptr<ArrayRef<int>> Mask)
+      : PatternNode(PN_Shuffle, Type), Op(Op), First(std::move(First)),
+        Second(std::move(Second)), Mask(std::move(Mask)) {}
+
+  std::string patternString(int Indent = 0) override {
+    std::string TypeStr = lltToString(Type);
+    std::string MaskStr = "";
+
+    for (size_t i = 0; i < Mask.size(); i++) {
+      if (i != 0) {
+        MaskStr += ", ";
+      }
+      MaskStr += std::to_string(Mask[i]);
+    }
+    std::string OpString = "(vector_shuffle<" + MaskStr + "> " + First->patternString(Indent + 1) + ", " + Second->patternString(Indent + 1) + ")";
+
+    // Explicitly specifying types for all ops increases pattern compile time
+    // significantly, so we only do for ops where deduction fails otherwise.
+    bool PrintType = false;
+
+    if (PrintType)
+      return "(" + TypeStr + " " + OpString + ")";
+    return OpString;
+  }
+
+  LLT getRegisterTy(int OperandId) const override {
+    if (OperandId == -1)
+      return Type;
+
+    auto FirstT = First->getRegisterTy(OperandId);
+    auto SecondT = Second->getRegisterTy(OperandId);
+    // auto ThirdT = Third->getRegisterTy(OperandId);
+    return FirstT.isValid() ? FirstT : SecondT;
+  }
+
+  static bool classof(const PatternNode *p) { return p->getKind() == PN_Shuffle; }
+};
+
 struct TernopNode : public PatternNode {
   int Op;
   std::unique_ptr<PatternNode> First;
