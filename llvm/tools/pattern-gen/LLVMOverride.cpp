@@ -363,7 +363,9 @@ void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
   CGSCCAnalysisManager CGAM;
   ModuleAnalysisManager MAM;
   PipelineTuningOptions PTO;
-  PTO.SLPVectorization = true;
+  // PTO.SLPVectorization = true;
+  // PTO.SLPVectorization = CodeGenOpt::getLevel(optLevel) > 1;
+  PTO.SLPVectorization = static_cast<int>(optLevel) > 1;
 
   // Create the new pass manager builder.
   // Take a look at the PassBuilder constructor parameters for more
