@@ -50,6 +50,8 @@ static cl::opt<bool> SkipPat("skip-patterns", cl::desc("Skip pattern-gen step.")
                           cl::cat(ToolOptions));
 static cl::opt<bool> SkipVerify("skip-verify", cl::desc("Skip verification step."),
                           cl::cat(ToolOptions));
+static cl::opt<bool> PrintIR("print-ir", cl::desc("Print LLVM-IR module."),
+                          cl::cat(ToolOptions));
 
 static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
                                     cl::cat(ToolOptions), cl::init("ExtXcvsimd"));
@@ -123,6 +125,9 @@ int main(int argc, char **argv) {
     if (verifyModule(*mod, &errs()))
       return -1;
 
+  if (PrintIR)
+    llvm::outs() << *mod << "\n";
+
   // TODO: use force
 
   llvm::CodeGenOptLevel Opt;
@@ -147,6 +152,8 @@ int main(int argc, char **argv) {
                     .Predicates = Predicates};
 
   OptimizeBehavior(mod.get(), instrs, irOut, Args);
+  if (PrintIR)
+    llvm::outs() << *mod << "\n";
   if (!SkipFmt)
     PrintInstrsAsTableGen(instrs, formatOut);
 
