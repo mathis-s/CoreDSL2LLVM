@@ -706,6 +706,15 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                 }
                 error(("undefined register ID: " + std::string(ident.str)).c_str(), ts);
             }
+            else if (t.ident.str == "MEM")
+            {
+                pop_cur(ts, ABrOpen);
+                auto addr = ParseExpression(ts, func, build);
+                pop_cur(ts, ABrClose);
+                auto *addrPtr = build.CreateIntToPtr(addr.ll, llvm::PointerType::get(ctx, 0));
+
+                return Value{addrPtr, -1, false};
+            }
             else
             {
                 auto match = find_var(t.ident.idx);
@@ -1031,15 +1040,15 @@ void ParseOperands(TokenStream& ts, CDSLInstr& instr)
 
         // Sign bit specifies whether to OR or AND the mask, so just do
         // ~MY_FIELD to unset myField.
-        const static llvm::DenseMap<llvm::StringRef, uint> attrMap =
+        const static llvm::DenseMap<llvm::StringRef, std::pair<uint, bool>> attrMap =
         {
-            {"is_unsigned", ~FieldType::SIGNED_REG},
-            {"is_signed", FieldType::SIGNED_REG},
-            {"is_imm", FieldType::IMM},
-            {"is_reg", FieldType::REG},
-            {"in", FieldType::IN},
-            {"out", FieldType::OUT},
-            {"inout", (FieldType::IN|FieldType::OUT)},
+            {"is_unsigned", {~FieldType::SIGNED_REG, 0}},
+            {"is_signed", {FieldType::SIGNED_REG, 0}},
+            {"is_imm", {FieldType::IMM, 0}},
+            {"is_reg", {FieldType::REG, 0}},
+            {"in", {FieldType::IN, 0}},
+            {"out", {FieldType::OUT, 0}},
+            {"inout", {(FieldType::IN|FieldType::OUT), 0}},
         };
 
         uint acc = 0;
@@ -1048,15 +1057,26 @@ void ParseOperands(TokenStream& ts, CDSLInstr& instr)
             for (int i = 0; i < 2; i++)
                 pop_cur(ts, ABrOpen);
 
+            bool allowArg = true;
+
             auto ident = pop_cur(ts, Identifier).ident;
             auto iter = attrMap.find(ident.str);
             if (iter != attrMap.end())
             {
-                uint op = iter->getSecond();
-                if (op & (1UL << std::numeric_limits<uint>::digits))
+                uint op = iter->getSecond().first;
+                allowArg = iter->getSecond().second;
+                if (op & (1UL << (std::numeric_limits<uint>::digits - 1)))
                     acc &= op;
                 else
                     acc |= op;
+            }
+
+            if (pop_cur_if(ts, Assignment))
+            {
+                if (!allowArg)
+                    error("attribute does not take an argument", ts);
+                if (!llvm::find(std::array{Identifier, IntLiteral, StringLiteral}, ts.Pop().type))
+                    error("invalid attribute", ts);
             }
             
             for (int i = 0; i < 2; i++)
