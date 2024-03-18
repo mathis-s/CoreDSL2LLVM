@@ -1279,7 +1279,7 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     entry = llvm::BasicBlock::Create(ctx, "", func);
     llvm::IRBuilder<> build(entry);
 
-    ParseScope(ts, func, build);
+    ParseStatement(ts, func, build);
     build.CreateRetVoid();
 }
 
