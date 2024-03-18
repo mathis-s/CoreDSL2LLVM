@@ -100,9 +100,19 @@ static void __attribute__((noreturn)) error(const char* msg, TokenStream& ts)
     exit(-1);
 }
 
+static void warning(const char* msg, TokenStream& ts)
+{
+    fprintf(stderr, "%s:%i: warning: %s\n", ts.path.c_str(), ts.lineNumber, msg);
+}
+
 static void __attribute__((noreturn)) syntax_error(TokenStream& ts)
 {
     error("syntax error", ts);
+}
+
+static void implicit_truncation(TokenStream& ts)
+{
+    warning("implicit truncation", ts);
 }
 
 static void __attribute__((noreturn)) not_implemented(TokenStream& ts)
@@ -297,7 +307,7 @@ Value gen_assign(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build
     check_lvalue(left, ts, build.GetInsertBlock());
 
     if (left.bitWidth < right.bitWidth && op == Assignment)
-        error("implicit truncation", ts);
+        implicit_truncation(ts);
 
     Value rightOriginal = right;
 
@@ -891,7 +901,7 @@ void ParseDeclaration (TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>&
         init = ParseExpression(ts, func, build);
         promote_lvalue(build, init.value());
         if (bitSize == -1) bitSize = init->bitWidth;
-        if (init->bitWidth > bitSize) error("implicit truncation", ts);
+        if (init->bitWidth > bitSize) implicit_truncation(ts);
         init->bitWidth = bitSize;
         fit_to_size(init.value(), build);
     }
