@@ -161,7 +161,6 @@ static void fit_to_size(Value& v, llvm::IRBuilder<>& build)
     // expressions with power-of-two bit widths
     
     int bitWidth2 = ceil_to_pow2(v.bitWidth);
-    if (bitWidth2 > 32) bitWidth2 = 32;
     llvm::Type* newType = llvm::Type::getIntNTy(ctx, bitWidth2);
 
     if (newType->getIntegerBitWidth() > (v.isLValue ? v.bitWidth : v.ll->getType()->getIntegerBitWidth()))
