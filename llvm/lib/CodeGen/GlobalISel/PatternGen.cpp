@@ -10,7 +10,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/CodeGen/GlobalISel/PatternGen.h"
-#include "../../tools/pattern-gen/lib/InstrInfo.hpp"
+#include "../../../tools/pattern-gen/lib/InstrInfo.hpp"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Analysis/LazyBlockFrequencyInfo.h"
