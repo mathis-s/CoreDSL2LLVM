@@ -576,6 +576,18 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
+  case TargetOpcode::G_ABS: {
+
+    auto [Err, NodeR] = traverseUnopOperands(MRI, Cur);
+    if (Err)
+      return std::make_pair(Err, nullptr);
+
+    auto Node = std::make_unique<UnopNode>(
+        MRI.getType(Cur.getOperand(0).getReg()), Cur.getOpcode(),
+        std::move(NodeR));
+
+    return std::make_pair(SUCCESS, std::move(Node));
+  }
   case TargetOpcode::G_BITCAST: {
     auto *Operand = MRI.getOneDef(Cur.getOperand(1).getReg());
     if (!Operand)
