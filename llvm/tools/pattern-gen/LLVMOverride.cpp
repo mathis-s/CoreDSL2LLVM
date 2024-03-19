@@ -363,9 +363,7 @@ void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
   CGSCCAnalysisManager CGAM;
   ModuleAnalysisManager MAM;
   PipelineTuningOptions PTO;
-  // PTO.SLPVectorization = true;
-  // PTO.SLPVectorization = CodeGenOpt::getLevel(optLevel) > 1;
-  PTO.SLPVectorization = static_cast<int>(optLevel) > 1;
+  PTO.SLPVectorization = optLevel > llvm::CodeGenOptLevel::None;
 
   // Create the new pass manager builder.
   // Take a look at the PassBuilder constructor parameters for more
@@ -389,15 +387,15 @@ void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
   MPM.run(*module, MAM);
 }
 
-static void set_options()
-{
-    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1"};
-    cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
+static void set_options() {
+  const char *args[] = {"", "--slp-threshold=-3", "--global-isel",
+                        "--global-isel-abort=1"};
+  cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
 }
 
 // Adapted from LLVM llc
 int RunOptPipeline(llvm::Module *M, std::string mattr,
-                          llvm::CodeGenOptLevel optLevel, std::ostream &irOut) {
+                   llvm::CodeGenOptLevel optLevel, std::ostream &irOut) {
   set_options();
 
   InitializeAllTargets();
@@ -469,7 +467,6 @@ int RunOptPipeline(llvm::Module *M, std::string mattr,
 int RunPatternGenPipeline(llvm::Module *M, std::string mattr) {
   set_options();
 
-
   // Load the module to be compiled...
   // SMDiagnostic Err;
   Triple TheTriple("riscv32", "unknown", "linux", "gnu");
@@ -492,13 +489,7 @@ int RunPatternGenPipeline(llvm::Module *M, std::string mattr) {
   TargetMachine *Target = new RISCVPatternTargetMachine(
       *TheTarget, TheTriple, CPUStr, FeaturesStr, Options, RM, CM,
       llvm::CodeGenOptLevel::Aggressive, false);
-  // TheTarget->createTargetMachine(TheTriple.getTriple(), CPUStr, FeaturesStr,
-  // Options, RM, CM,
-  //                                llvm::CodeGenOpt::Aggressive);
-  // llvm::DebugFlag = true;
   M->setDataLayout(Target->createDataLayout().getStringRepresentation());
-  // llvm::outs() << *M << "\n";
-  // llvm::DebugFlag = false;
 
   static_assert(sizeof(RISCVTargetMachine) ==
                 sizeof(RISCVPatternTargetMachine));
