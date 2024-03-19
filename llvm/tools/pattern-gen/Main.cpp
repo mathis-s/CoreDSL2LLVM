@@ -141,15 +141,17 @@ int main(int argc, char **argv) {
     break;
   }
 
-  if (!Skip) {
+  PGArgsStruct Args{.ExtName = ExtName,
+                    .Mattr = Mattr,
+                    .OptLevel = Opt,
+                    .Predicates = Predicates};
+
+  OptimizeBehavior(mod.get(), instrs, irOut, Args);
+  if (!SkipFmt)
     PrintInstrsAsTableGen(instrs, formatOut);
 
-    PGArgsStruct Args{.ExtName = ExtName,
-                      .Mattr = Mattr,
-                      .OptLevel = Opt,
-                      .Predicates = Predicates};
-    OptimizeBehavior(mod.get(), instrs, irOut, Args);
-
-    GeneratePatterns(mod.get(), instrs, patternOut, irOut, Args);
-  }
+  if (!SkipPat)
+    if (GeneratePatterns(mod.get(), instrs, patternOut, Args))
+      return -1;
+  return 0;
 }
