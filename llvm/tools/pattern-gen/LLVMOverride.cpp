@@ -394,7 +394,7 @@ static void set_options()
 }
 
 // Adapted from LLVM llc
-int RunPatternGenPipeline(llvm::Module *M, std::string mattr,
+int RunOptPipeline(llvm::Module *M, std::string mattr,
                           llvm::CodeGenOptLevel optLevel, std::ostream &irOut) {
   set_options();
 
@@ -459,6 +459,44 @@ int RunPatternGenPipeline(llvm::Module *M, std::string mattr,
   }
   // llvm::outs() << *M << "\n";
   //  llvm::DebugFlag = false;
+
+  return 0;
+}
+
+// Adapted from LLVM llc
+int RunPatternGenPipeline(llvm::Module *M, std::string mattr) {
+  set_options();
+
+
+  // Load the module to be compiled...
+  // SMDiagnostic Err;
+  Triple TheTriple("riscv32", "unknown", "linux", "gnu");
+  codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
+  std::string CPUStr = codegen::getCPUStr(),
+              FeaturesStr = codegen::getFeaturesStr() + mattr;
+
+  TargetOptions Options;
+  Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
+
+  std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
+  std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
+
+  M->setTargetTriple("riscv32-unknown-linux-gnu");
+
+  std::string error;
+  const class Target *TheTarget =
+      llvm::TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, error);
+
+  TargetMachine *Target = new RISCVPatternTargetMachine(
+      *TheTarget, TheTriple, CPUStr, FeaturesStr, Options, RM, CM,
+      llvm::CodeGenOptLevel::Aggressive, false);
+  // TheTarget->createTargetMachine(TheTriple.getTriple(), CPUStr, FeaturesStr,
+  // Options, RM, CM,
+  //                                llvm::CodeGenOpt::Aggressive);
+  // llvm::DebugFlag = true;
+  M->setDataLayout(Target->createDataLayout().getStringRepresentation());
+  // llvm::outs() << *M << "\n";
+  // llvm::DebugFlag = false;
 
   static_assert(sizeof(RISCVTargetMachine) ==
                 sizeof(RISCVPatternTargetMachine));

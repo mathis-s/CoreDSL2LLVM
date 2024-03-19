@@ -12,5 +12,6 @@ struct PGArgsStruct
     std::string Predicates;
 };
 
-int GeneratePatterns(llvm::Module* M, std::vector<CDSLInstr> const& instrs, std::ostream& ostream, std::ostream& ostreamIR, PGArgsStruct args);
+int OptimizeBehavior(llvm::Module* M, std::vector<CDSLInstr> const& instrs, std::ostream& ostreamIR, PGArgsStruct args);
+int GeneratePatterns(llvm::Module* M, std::vector<CDSLInstr> const& instrs, std::ostream& ostream, PGArgsStruct args);
 //void PrintPattern(llvm::SelectionDAG& DAG);
