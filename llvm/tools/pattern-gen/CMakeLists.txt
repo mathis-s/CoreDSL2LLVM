@@ -23,7 +23,7 @@ set(LLVM_LINK_COMPONENTS
   )
 
 include_directories(../../lib/Target/RISCV)
-include_directories(../../build/lib/Target/RISCV)
+include_directories(${CMAKE_BINARY_DIR}/lib/Target/RISCV)
 
 add_llvm_tool(pattern-gen
   Main.cpp
