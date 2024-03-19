@@ -135,6 +135,7 @@ int main(int argc, char **argv) {
                       .Mattr = Mattr,
                       .OptLevel = Opt,
                       .Predicates = Predicates};
+    OptimizeBehavior(mod.get(), instrs, irOut, Args);
 
     GeneratePatterns(mod.get(), instrs, patternOut, irOut, Args);
   }

@@ -25,15 +25,28 @@
 #include <unordered_map>
 #include <utility>
 
+int OptimizeBehavior(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
+                     std::ostream &ostreamIR, PGArgsStruct args) {
+  // All other code in this file is called during code generation
+  // by the LLVM pipeline. We thus "pass" arguments as globals.
+  // llvm::PatternGenArgs::ExtName = &extName;
+
+  int rv = RunOptPipeline(M, args.Mattr, args.OptLevel, ostreamIR);
+
+  // llvm::PatternGenArgs::ExtName = nullptr;
+
+  return rv;
+}
+
 int GeneratePatterns(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
-                     std::ostream &ostream, std::ostream &ostreamIR, PGArgsStruct args) {
+                     std::ostream &ostream, PGArgsStruct args) {
   // All other code in this file is called during code generation
   // by the LLVM pipeline. We thus "pass" arguments as globals.
   llvm::PatternGenArgs::OutStream = &ostream;
   llvm::PatternGenArgs::Args = args;
   llvm::PatternGenArgs::Instrs = &instrs;
 
-  int rv = RunPatternGenPipeline(M, args.Mattr, args.OptLevel, ostreamIR);
+  int rv = RunPatternGenPipeline(M, args.Mattr);
 
   llvm::PatternGenArgs::OutStream = nullptr;
   llvm::PatternGenArgs::Args = PGArgsStruct();
