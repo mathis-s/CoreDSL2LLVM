@@ -562,6 +562,10 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_AND:
   case TargetOpcode::G_OR:
   case TargetOpcode::G_XOR:
+  case TargetOpcode::G_SMAX:
+  case TargetOpcode::G_UMAX:
+  case TargetOpcode::G_SMIN:
+  case TargetOpcode::G_UMIN:
   case TargetOpcode::G_SHL:
   case TargetOpcode::G_LSHR:
   case TargetOpcode::G_ASHR: {
