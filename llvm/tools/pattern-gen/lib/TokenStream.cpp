@@ -182,6 +182,10 @@ Token TokenStream::Peek()
 static std::string read_file_as_str (std::string path)
 {
     std::ifstream ifs(path);
+    if (!ifs) {
+        fprintf(stderr, "Aborting! File does not exist: %s\n", path.c_str());
+        exit(-1);
+    }
     std::string content((std::istreambuf_iterator<char>(ifs)),
                         std::istreambuf_iterator<char>());
 
