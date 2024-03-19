@@ -419,9 +419,11 @@ struct CompareNode : public BinopNode {
 
   std::string patternString(int Indent = 0) override {
     std::string TypeStr = lltToString(Type);
+    std::string LhsTypeStr = lltToString(Left->Type);
+    std::string RhsTypeStr = lltToString(Right->Type);
 
-    return "(" + TypeStr + " (setcc " + Left->patternString(Indent + 1) + ", " +
-           Right->patternString(Indent + 1) + ", " + CmpStr.at(Cond) + "))";
+    return "(" + TypeStr + " (setcc (" + LhsTypeStr + " "+ Left->patternString(Indent + 1) + "), (" + RhsTypeStr + " " +
+           Right->patternString(Indent + 1) + "), " + CmpStr.at(Cond) + "))";
   }
 };
 
