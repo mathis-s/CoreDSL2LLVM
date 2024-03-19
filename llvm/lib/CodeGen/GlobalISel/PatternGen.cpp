@@ -344,6 +344,7 @@ struct BinopNode : public PatternNode {
   std::string patternString(int Indent = 0) override {
     static const std::unordered_map<int, std::string> BinopStr = {
         {TargetOpcode::G_ADD, "add"},
+        {TargetOpcode::G_PTR_ADD, "add"},
         {TargetOpcode::G_SUB, "sub"},
         {TargetOpcode::G_MUL, "mul"},
         {TargetOpcode::G_SDIV, "div"},
@@ -766,6 +767,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     return std::make_pair(SUCCESS, std::move(Node));
   }
   case TargetOpcode::G_ADD:
+  case TargetOpcode::G_PTR_ADD:
   case TargetOpcode::G_SUB:
   case TargetOpcode::G_MUL:
   case TargetOpcode::G_SDIV:
@@ -840,6 +842,11 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
       return std::make_pair(PatternError(FORMAT_LOAD, &Cur), nullptr);
     auto *AddrI = Addr->getParent();
     if (AddrI->getOpcode() != TargetOpcode::COPY)
+      if (AddrI->getOpcode() == TargetOpcode::G_PTR_ADD) {
+          llvm::outs() << "G_PTR_ADD not implemented!" << '\n';
+          // TargetOpcode::G_ADD, "add"},
+          // transform to: trunc (reg >> (offset * width))
+      }
       return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
 
     assert(Cur.getOperand(1).isReg() && "expected register");
