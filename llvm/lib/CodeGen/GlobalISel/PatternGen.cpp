@@ -512,6 +512,19 @@ traverseBinopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
   return std::make_tuple(SUCCESS, std::move(NodeL), std::move(NodeR));
 }
 
+static std::tuple<PatternError, std::unique_ptr<PatternNode>>
+traverseUnopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
+                      int start = 1) {
+  auto *RHS = MRI.getOneDef(Cur.getOperand(start).getReg());
+  if (!RHS)
+    return std::make_tuple(PatternError(FORMAT, &Cur), nullptr);
+
+  auto [ErrR, NodeR] = traverse(MRI, *RHS->getParent());
+  if (ErrR)
+    return std::make_tuple(ErrR, nullptr);
+  return std::make_tuple(SUCCESS, std::move(NodeR));
+}
+
 static int getArgIdx(MachineRegisterInfo &MRI, Register Reg) {
   auto It = std::find_if(MRI.livein_begin(), MRI.livein_end(),
                          [&](std::pair<MCRegister, Register> const &e) {
