@@ -796,11 +796,11 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
     OutStream << Constr;
   }
   OutStream << "\" in ";
-  OutStream << "def " << InstName << " : RVInst_" << InstNameO << "<(outs "
+  OutStream << "def " << InstName << "_ : RVInst_" << InstNameO << "<(outs "
             << OutsString << "), (ins " << InsString << ")>;\n";
 
   std::string PatternStr = Node->patternString();
-  std::string Code = "def : Pat<\n\t" + PatternStr + ",\n\t(" + InstName + " ";
+  std::string Code = "def : Pat<\n\t(i32 " + PatternStr + "),\n\t(" + InstName + "_ ";
 
   Code += InsString;
   Code += ")>;";
