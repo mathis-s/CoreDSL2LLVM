@@ -10,7 +10,7 @@ struct TokenStream
     const std::string src;
     size_t i = 0;
     int lineNumber = 1;
-    
+
   private:
     std::optional<Token> peekToken;
     std::map<std::string_view, uint32_t> strings =

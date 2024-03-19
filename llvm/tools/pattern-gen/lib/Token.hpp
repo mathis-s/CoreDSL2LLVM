@@ -45,7 +45,7 @@ enum TokenType
     Increment,
     Decrement,
     OP_END = Decrement,
-    
+
     // Remaining tokens, order of these does not matter.
     None,
     RBrOpen,
@@ -60,7 +60,7 @@ enum TokenType
     MinusColon,
     Comma,
     Semicolon,
-    
+
     TOK_KW_START,
     IfKeyword = TOK_KW_START,
     ElseKeyword,
@@ -105,12 +105,12 @@ struct Token
     };
 
     Token (TokenType type) : type(type) {}
-    Token (uint32_t identIdx, std::string_view&& identStr) : type(Identifier) 
+    Token (uint32_t identIdx, std::string_view&& identStr) : type(Identifier)
     {
         ident.str = identStr;
         ident.idx = identIdx;
     }
-    Token (bool isSigned, unsigned bitLen, uint64_t value) : type(IntLiteral) 
+    Token (bool isSigned, unsigned bitLen, uint64_t value) : type(IntLiteral)
     {
         literal.isSigned = isSigned;
         literal.bitLen = bitLen;
@@ -128,7 +128,7 @@ struct Token
         {
             case Identifier: return b.ident.idx == ident.idx;
             case StringLiteral: return b.strLit.str == strLit.str;
-            case IntLiteral: return 
+            case IntLiteral: return
                 b.literal.isSigned == literal.isSigned &&
                 b.literal.bitLen == literal.bitLen &&
                 b.literal.value == literal.value;
