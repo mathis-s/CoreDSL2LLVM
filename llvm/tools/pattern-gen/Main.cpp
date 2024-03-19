@@ -44,21 +44,26 @@ static cl::opt<std::string>
 
 static cl::opt<bool> Force("f", cl::desc("Ignore parser errors."),
                            cl::cat(ToolOptions));
-static cl::opt<bool> Skip("s", cl::desc("Skip pattern-gen step."),
+static cl::opt<bool> SkipFmt("skip-formats", cl::desc("Skip tablegen formats step."),
+                          cl::cat(ToolOptions));
+static cl::opt<bool> SkipPat("skip-patterns", cl::desc("Skip pattern-gen step."),
+                          cl::cat(ToolOptions));
+static cl::opt<bool> SkipVerify("skip-verify", cl::desc("Skip verification step."),
                           cl::cat(ToolOptions));
 
 static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
-                                    cl::cat(ToolOptions), cl::init("Xcvsimd"));
+                                    cl::cat(ToolOptions), cl::init("ExtXcvsimd"));
 static cl::opt<std::string>
     Mattr("mattr2", cl::desc("Target specific attributes"),
           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-          cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+          // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+          cl::init("+m,+fast-unaligned-access"));
 
 // Determine optimization level.
 static cl::opt<char>
     OptLevel("O",
              cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] "
-                      "(default = '-O2')"),
+                      "(default = '-O3')"),
              cl::cat(ToolOptions), cl::init('3'));
 
 static cl::opt<std::string> Predicates(
