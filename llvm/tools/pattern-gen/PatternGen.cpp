@@ -27,15 +27,7 @@
 
 int OptimizeBehavior(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
                      std::ostream &ostreamIR, PGArgsStruct args) {
-  // All other code in this file is called during code generation
-  // by the LLVM pipeline. We thus "pass" arguments as globals.
-  // llvm::PatternGenArgs::ExtName = &extName;
-
-  int rv = RunOptPipeline(M, args.Mattr, args.OptLevel, ostreamIR);
-
-  // llvm::PatternGenArgs::ExtName = nullptr;
-
-  return rv;
+  return RunOptPipeline(M, args.Mattr, args.OptLevel, ostreamIR);
 }
 
 int GeneratePatterns(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
