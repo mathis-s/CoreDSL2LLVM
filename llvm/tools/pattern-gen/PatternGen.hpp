@@ -6,7 +6,6 @@
 
 struct PGArgsStruct
 {
-    std::string ExtName;
     std::string Mattr;
     llvm::CodeGenOptLevel OptLevel;
     std::string Predicates;
