@@ -363,7 +363,7 @@ void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
   CGSCCAnalysisManager CGAM;
   ModuleAnalysisManager MAM;
   PipelineTuningOptions PTO;
-  PTO.SLPVectorization = true;
+  PTO.SLPVectorization = optLevel > llvm::CodeGenOptLevel::None;
 
   // Create the new pass manager builder.
   // Take a look at the PassBuilder constructor parameters for more
@@ -387,15 +387,15 @@ void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
   MPM.run(*module, MAM);
 }
 
-static void set_options()
-{
-    const char* args[] = {"", "--slp-threshold=-3", "--global-isel", "--global-isel-abort=1"};
-    cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
+static void set_options() {
+  const char *args[] = {"", "--slp-threshold=-3", "--global-isel",
+                        "--global-isel-abort=1"};
+  cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
 }
 
 // Adapted from LLVM llc
-int RunPatternGenPipeline(llvm::Module *M, std::string mattr,
-                          llvm::CodeGenOptLevel optLevel, std::ostream &irOut) {
+int RunOptPipeline(llvm::Module *M, std::string mattr,
+                   llvm::CodeGenOptLevel optLevel, std::ostream &irOut) {
   set_options();
 
   InitializeAllTargets();
@@ -459,6 +459,37 @@ int RunPatternGenPipeline(llvm::Module *M, std::string mattr,
   }
   // llvm::outs() << *M << "\n";
   //  llvm::DebugFlag = false;
+
+  return 0;
+}
+
+// Adapted from LLVM llc
+int RunPatternGenPipeline(llvm::Module *M, std::string mattr) {
+  set_options();
+
+  // Load the module to be compiled...
+  // SMDiagnostic Err;
+  Triple TheTriple("riscv32", "unknown", "linux", "gnu");
+  codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
+  std::string CPUStr = codegen::getCPUStr(),
+              FeaturesStr = codegen::getFeaturesStr() + mattr;
+
+  TargetOptions Options;
+  Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
+
+  std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
+  std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
+
+  M->setTargetTriple("riscv32-unknown-linux-gnu");
+
+  std::string error;
+  const class Target *TheTarget =
+      llvm::TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, error);
+
+  TargetMachine *Target = new RISCVPatternTargetMachine(
+      *TheTarget, TheTriple, CPUStr, FeaturesStr, Options, RM, CM,
+      llvm::CodeGenOptLevel::Aggressive, false);
+  M->setDataLayout(Target->createDataLayout().getStringRepresentation());
 
   static_assert(sizeof(RISCVTargetMachine) ==
                 sizeof(RISCVPatternTargetMachine));

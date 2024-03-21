@@ -44,21 +44,25 @@ static cl::opt<std::string>
 
 static cl::opt<bool> Force("f", cl::desc("Ignore parser errors."),
                            cl::cat(ToolOptions));
-static cl::opt<bool> Skip("s", cl::desc("Skip pattern-gen step."),
+static cl::opt<bool> SkipFmt("skip-formats", cl::desc("Skip tablegen formats step."),
                           cl::cat(ToolOptions));
-
-static cl::opt<std::string> ExtName("ext", cl::desc("Target extension"),
-                                    cl::cat(ToolOptions), cl::init("Xcvsimd"));
+static cl::opt<bool> SkipPat("skip-patterns", cl::desc("Skip pattern-gen step."),
+                          cl::cat(ToolOptions));
+static cl::opt<bool> SkipVerify("skip-verify", cl::desc("Skip verification step."),
+                          cl::cat(ToolOptions));
+static cl::opt<bool> PrintIR("print-ir", cl::desc("Print LLVM-IR module."),
+                          cl::cat(ToolOptions));
 static cl::opt<std::string>
     Mattr("mattr2", cl::desc("Target specific attributes"),
           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-          cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+          // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+          cl::init("+m,+fast-unaligned-access"));
 
 // Determine optimization level.
 static cl::opt<char>
     OptLevel("O",
              cl::desc("Optimization level. [-O0, -O1, -O2, or -O3] "
-                      "(default = '-O2')"),
+                      "(default = '-O3')"),
              cl::cat(ToolOptions), cl::init('3'));
 
 static cl::opt<std::string> Predicates(
@@ -67,7 +71,7 @@ static cl::opt<std::string> Predicates(
 #include <iostream>
 namespace fs = std::filesystem;
 
-static auto get_out_streams(std::string srcPath, std::string destPath) {
+static auto get_out_streams(std::string srcPath, std::string destPath, bool emitLL) {
   fs::path outPath{destPath};
 
   fs::path inPath{srcPath};
@@ -79,9 +83,18 @@ static auto get_out_streams(std::string srcPath, std::string destPath) {
     newExt = outPath.extension();
   }
   // TODO: allow .td in out path
-  std::string irPath = basePath.string() + ".ll";
-  std::string fmtPath = basePath.string() + "InstrFormat" + newExt;
-  std::string patPath = basePath.string() + newExt;
+  std::string irPath = "/dev/null";
+  std::string fmtPath = "/dev/null";
+  std::string patPath = "/dev/null";
+  if (emitLL) {
+    irPath = basePath.string() + ".ll";
+  }
+  if (!SkipFmt) {
+    fmtPath = basePath.string() + "InstrFormat" + newExt;
+  }
+  if (!SkipPat) {
+    patPath = basePath.string() + newExt;
+  }
 
   return std::make_tuple(std::ofstream(irPath), std::ofstream(fmtPath),
                          std::ofstream(patPath));
@@ -98,17 +111,19 @@ int main(int argc, char **argv) {
   // const char* srcPath = argv[1];
 
   auto [irOut, formatOut, patternOut] =
-      get_out_streams(InputFilename, OutputFilename);
+      get_out_streams(InputFilename, OutputFilename, true);
 
   TokenStream ts(InputFilename.c_str());
   LLVMContext ctx;
   auto mod = std::make_unique<Module>("mod", ctx);
   auto instrs = ParseCoreDSL2(ts, mod.get());
 
-  if (verifyModule(*mod, &errs()))
-    return -1;
+  if (!SkipVerify)
+    if (verifyModule(*mod, &errs()))
+      return -1;
 
-  llvm::errs() << *mod << "\n";
+  if (PrintIR)
+    llvm::outs() << *mod << "\n";
 
   // TODO: use force
 
@@ -128,14 +143,18 @@ int main(int argc, char **argv) {
     break;
   }
 
-  if (!Skip) {
+  PGArgsStruct Args{.Mattr = Mattr,
+                    .OptLevel = Opt,
+                    .Predicates = Predicates};
+
+  OptimizeBehavior(mod.get(), instrs, irOut, Args);
+  if (PrintIR)
+    llvm::outs() << *mod << "\n";
+  if (!SkipFmt)
     PrintInstrsAsTableGen(instrs, formatOut);
 
-    PGArgsStruct Args{.ExtName = ExtName,
-                      .Mattr = Mattr,
-                      .OptLevel = Opt,
-                      .Predicates = Predicates};
-
-    GeneratePatterns(mod.get(), instrs, patternOut, irOut, Args);
-  }
+  if (!SkipPat)
+    if (GeneratePatterns(mod.get(), instrs, patternOut, Args))
+      return -1;
+  return 0;
 }

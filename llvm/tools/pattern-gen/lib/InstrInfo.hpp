@@ -16,7 +16,7 @@ struct CDSLInstr
         uint8_t dstOffset;
         uint8_t srcOffset;
     };
-    
+
     enum FieldType
     {
         CONST = 0,
