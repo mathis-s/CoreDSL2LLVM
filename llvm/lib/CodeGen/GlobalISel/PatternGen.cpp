@@ -665,7 +665,6 @@ traverseUnopOperands(MachineRegisterInfo &MRI, MachineInstr &Cur,
 static std::tuple<PatternError, std::vector<std::unique_ptr<PatternNode>>>
 traverseNOpOperands(MachineRegisterInfo &MRI, MachineInstr &Cur, size_t N,
                     int start = 1) {
-  // llvm::outs() << "traverseNOpOperands" << '\n';
   std::vector<std::unique_ptr<PatternNode>> operands(N);
   for (size_t i = 0; i < N; i++) {
     // llvm::outs() << "i=" << i << '\n';
@@ -970,8 +969,6 @@ generatePattern(MachineFunction &MF) {
 }
 
 bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
-    
-  MF.dump();
 
   std::string InstName = MF.getName().str().substr(4);
   std::string InstNameO = InstName;
@@ -1022,7 +1019,6 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   OutsString = OutsString.substr(0, OutsString.size() - 2);
 
   auto &OutStream = *PatternGenArgs::OutStream;
-  auto &ExtName = PatternGenArgs::Args.ExtName;
 
   OutStream << "let ";
   if (!PatternGenArgs::Args.Predicates.empty()) {
