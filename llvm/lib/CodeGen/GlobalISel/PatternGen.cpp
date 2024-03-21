@@ -314,7 +314,8 @@ struct TernopNode : public PatternNode {
 
   std::string patternString(int Indent = 0) override {
     static const std::unordered_map<int, std::string> BinopStr = {
-        {TargetOpcode::G_INSERT_VECTOR_ELT, "vector_insert"}};
+        {TargetOpcode::G_INSERT_VECTOR_ELT, "vector_insert"},
+        {TargetOpcode::G_SELECT, "select"}};
 
     std::string TypeStr = lltToString(Type);
     std::string OpString = "(" + std::string(BinopStr.at(Op)) + " " +
@@ -918,6 +919,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
+  case TargetOpcode::G_SELECT:
   case TargetOpcode::G_INSERT_VECTOR_ELT: {
     auto [Err, NodeFirst, NodeSecond, NodeThird] =
         traverseTernopOperands(MRI, Cur);
