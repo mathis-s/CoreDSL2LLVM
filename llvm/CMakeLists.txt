@@ -19,13 +19,13 @@ if(NOT DEFINED LLVM_VERSION_MAJOR)
   set(LLVM_VERSION_MAJOR 18)
 endif()
 if(NOT DEFINED LLVM_VERSION_MINOR)
-  set(LLVM_VERSION_MINOR 0)
+  set(LLVM_VERSION_MINOR 1)
 endif()
 if(NOT DEFINED LLVM_VERSION_PATCH)
-  set(LLVM_VERSION_PATCH 0)
+  set(LLVM_VERSION_PATCH 3)
 endif()
 if(NOT DEFINED LLVM_VERSION_SUFFIX)
-  set(LLVM_VERSION_SUFFIX git)
+  set(LLVM_VERSION_SUFFIX)
 endif()
 
 if (NOT PACKAGE_VERSION)
@@ -35,7 +35,7 @@ endif()
 
 if(NOT DEFINED LLVM_SHLIB_SYMBOL_VERSION)
   # "Symbol version prefix for libLLVM.so"
-  set(LLVM_SHLIB_SYMBOL_VERSION "LLVM_${LLVM_VERSION_MAJOR}")
+  set(LLVM_SHLIB_SYMBOL_VERSION "LLVM_${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}")
 endif()
 
 if ((CMAKE_GENERATOR MATCHES "Visual Studio") AND (MSVC_TOOLSET_VERSION LESS 142) AND (CMAKE_GENERATOR_TOOLSET STREQUAL ""))
@@ -346,6 +346,8 @@ set(PACKAGE_BUGREPORT "https://github.com/llvm/llvm-project/issues/")
 
 set(BUG_REPORT_URL "${PACKAGE_BUGREPORT}" CACHE STRING
   "Default URL where bug reports are to be submitted.")
+set(LLDB_BUG_REPORT_URL "${BUG_REPORT_URL}" CACHE STRING
+  "Default URL where lldb bug reports are to be submitted.")
 
 # Configure CPack.
 if(NOT DEFINED CPACK_PACKAGE_INSTALL_DIRECTORY)
@@ -1195,6 +1197,7 @@ if( LLVM_INCLUDE_UTILS )
   add_subdirectory(utils/UnicodeData)
   add_subdirectory(utils/yaml-bench)
   add_subdirectory(utils/split-file)
+  add_subdirectory(utils/mlgo-utils)
   if( LLVM_INCLUDE_TESTS )
     add_subdirectory(${LLVM_THIRD_PARTY_DIR}/unittest ${CMAKE_CURRENT_BINARY_DIR}/third-party/unittest)
   endif()

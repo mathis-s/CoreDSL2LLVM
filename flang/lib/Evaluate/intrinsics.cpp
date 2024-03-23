@@ -78,6 +78,8 @@ static constexpr CategorySet AnyType{IntrinsicType | DerivedType};
 ENUM_CLASS(KindCode, none, defaultIntegerKind,
     defaultRealKind, // is also the default COMPLEX kind
     doublePrecision, defaultCharKind, defaultLogicalKind,
+    greaterOrEqualToKind, // match kind value greater than or equal to a single
+                          // explicit kind value
     any, // matches any kind value; each instance is independent
     // match any kind, but all "same" kinds must be equal. For characters, also
     // implies that lengths must be equal.
@@ -104,7 +106,7 @@ ENUM_CLASS(KindCode, none, defaultIntegerKind,
 struct TypePattern {
   CategorySet categorySet;
   KindCode kindCode{KindCode::none};
-  int exactKindValue{0}; // for KindCode::exactKind
+  int kindValue{0}; // for KindCode::exactKind and greaterOrEqualToKind
   llvm::raw_ostream &Dump(llvm::raw_ostream &) const;
 };
 
@@ -1314,10 +1316,11 @@ static const IntrinsicInterface intrinsicSubroutine[]{
     {"execute_command_line",
         {{"command", DefaultChar, Rank::scalar},
             {"wait", AnyLogical, Rank::scalar, Optionality::optional},
-            {"exitstat", AnyInt, Rank::scalar, Optionality::optional,
-                common::Intent::InOut},
-            {"cmdstat", AnyInt, Rank::scalar, Optionality::optional,
-                common::Intent::Out},
+            {"exitstat",
+                TypePattern{IntType, KindCode::greaterOrEqualToKind, 4},
+                Rank::scalar, Optionality::optional, common::Intent::InOut},
+            {"cmdstat", TypePattern{IntType, KindCode::greaterOrEqualToKind, 2},
+                Rank::scalar, Optionality::optional, common::Intent::Out},
             {"cmdmsg", DefaultChar, Rank::scalar, Optionality::optional,
                 common::Intent::InOut}},
         {}, Rank::elemental, IntrinsicClass::impureSubroutine},
@@ -1834,7 +1837,10 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
       argOk = true;
       break;
     case KindCode::exactKind:
-      argOk = type->kind() == d.typePattern.exactKindValue;
+      argOk = type->kind() == d.typePattern.kindValue;
+      break;
+    case KindCode::greaterOrEqualToKind:
+      argOk = type->kind() >= d.typePattern.kindValue;
       break;
     case KindCode::sameAtom:
       if (!sameArg) {
@@ -2177,8 +2183,9 @@ std::optional<SpecificCall> IntrinsicInterface::Match(
       resultType = DynamicType{
           GetBuiltinDerivedType(builtinsScope, "__builtin_team_type")};
       break;
+    case KindCode::greaterOrEqualToKind:
     case KindCode::exactKind:
-      resultType = DynamicType{*category, result.exactKindValue};
+      resultType = DynamicType{*category, result.kindValue};
       break;
     case KindCode::typeless:
     case KindCode::any:
@@ -2727,28 +2734,13 @@ IntrinsicProcTable::Implementation::HandleC_F_Pointer(
   }
 }
 
-static bool CheckForCoindexedObject(FoldingContext &context,
-    const std::optional<ActualArgument> &arg, const std::string &procName,
-    const std::string &argName) {
-  bool ok{true};
-  if (arg) {
-    if (ExtractCoarrayRef(arg->UnwrapExpr())) {
-      ok = false;
-      context.messages().Say(arg->sourceLocation(),
-          "'%s' argument to '%s' may not be a coindexed object"_err_en_US,
-          argName, procName);
-    }
-  }
-  return ok;
-}
-
 // Function C_LOC(X) from intrinsic module ISO_C_BINDING (18.2.3.6)
 std::optional<SpecificCall> IntrinsicProcTable::Implementation::HandleC_Loc(
     ActualArguments &arguments, FoldingContext &context) const {
   static const char *const keywords[]{"x", nullptr};
   if (CheckAndRearrangeArguments(arguments, context.messages(), keywords)) {
     CHECK(arguments.size() == 1);
-    CheckForCoindexedObject(context, arguments[0], "c_loc", "x");
+    CheckForCoindexedObject(context.messages(), arguments[0], "c_loc", "x");
     const auto *expr{arguments[0].value().UnwrapExpr()};
     if (expr &&
         !(IsObjectPointer(*expr) ||
@@ -2876,7 +2868,7 @@ static bool CheckAtomicDefineAndRef(FoldingContext &context,
   }
 
   return sameType &&
-      CheckForCoindexedObject(context, statArg, procName, "stat");
+      CheckForCoindexedObject(context.messages(), statArg, procName, "stat");
 }
 
 // Applies any semantic checks peculiar to an intrinsic.
@@ -2900,25 +2892,29 @@ static bool ApplySpecificChecks(SpecificCall &call, FoldingContext &context) {
     // Now handled in Semantics/check-call.cpp
   } else if (name == "atomic_and" || name == "atomic_or" ||
       name == "atomic_xor") {
-    return CheckForCoindexedObject(context, call.arguments[2], name, "stat");
+    return CheckForCoindexedObject(
+        context.messages(), call.arguments[2], name, "stat");
   } else if (name == "atomic_cas") {
-    return CheckForCoindexedObject(context, call.arguments[4], name, "stat");
+    return CheckForCoindexedObject(
+        context.messages(), call.arguments[4], name, "stat");
   } else if (name == "atomic_define") {
     return CheckAtomicDefineAndRef(
         context, call.arguments[0], call.arguments[1], call.arguments[2], name);
   } else if (name == "atomic_fetch_add" || name == "atomic_fetch_and" ||
       name == "atomic_fetch_or" || name == "atomic_fetch_xor") {
-    return CheckForCoindexedObject(context, call.arguments[3], name, "stat");
+    return CheckForCoindexedObject(
+        context.messages(), call.arguments[3], name, "stat");
   } else if (name == "atomic_ref") {
     return CheckAtomicDefineAndRef(
         context, call.arguments[1], call.arguments[0], call.arguments[2], name);
   } else if (name == "co_broadcast" || name == "co_max" || name == "co_min" ||
       name == "co_sum") {
-    bool aOk{CheckForCoindexedObject(context, call.arguments[0], name, "a")};
-    bool statOk{
-        CheckForCoindexedObject(context, call.arguments[2], name, "stat")};
-    bool errmsgOk{
-        CheckForCoindexedObject(context, call.arguments[3], name, "errmsg")};
+    bool aOk{CheckForCoindexedObject(
+        context.messages(), call.arguments[0], name, "a")};
+    bool statOk{CheckForCoindexedObject(
+        context.messages(), call.arguments[2], name, "stat")};
+    bool errmsgOk{CheckForCoindexedObject(
+        context.messages(), call.arguments[3], name, "errmsg")};
     ok = aOk && statOk && errmsgOk;
   } else if (name == "image_status") {
     if (const auto &arg{call.arguments[0]}) {
@@ -2934,29 +2930,6 @@ static bool ApplySpecificChecks(SpecificCall &call, FoldingContext &context) {
       context.messages().Say(
           arg ? arg->sourceLocation() : context.messages().at(),
           "Argument of LOC() must be an object or procedure"_err_en_US);
-    }
-  } else if (name == "move_alloc") {
-    ok &= CheckForCoindexedObject(context, call.arguments[0], name, "from");
-    ok &= CheckForCoindexedObject(context, call.arguments[1], name, "to");
-    ok &= CheckForCoindexedObject(context, call.arguments[2], name, "stat");
-    ok &= CheckForCoindexedObject(context, call.arguments[3], name, "errmsg");
-    if (call.arguments[0] && call.arguments[1]) {
-      for (int j{0}; j < 2; ++j) {
-        if (const Symbol *last{GetLastSymbol(call.arguments[j])};
-            last && !IsAllocatable(last->GetUltimate())) {
-          context.messages().Say(call.arguments[j]->sourceLocation(),
-              "Argument #%d to MOVE_ALLOC must be allocatable"_err_en_US,
-              j + 1);
-          ok = false;
-        }
-      }
-      auto type0{call.arguments[0]->GetType()};
-      auto type1{call.arguments[1]->GetType()};
-      if (type0 && type1 && type0->IsPolymorphic() && !type1->IsPolymorphic()) {
-        context.messages().Say(call.arguments[1]->sourceLocation(),
-            "When MOVE_ALLOC(FROM=) is polymorphic, TO= must also be polymorphic"_err_en_US);
-        ok = false;
-      }
     }
   } else if (name == "present") {
     const auto &arg{call.arguments[0]};

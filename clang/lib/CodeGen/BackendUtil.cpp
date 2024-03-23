@@ -186,6 +186,14 @@ class EmitAssemblyHelper {
            TargetTriple.getVendor() != llvm::Triple::Apple;
   }
 
+  /// Check whether we should emit a flag for UnifiedLTO.
+  /// The UnifiedLTO module flag should be set when UnifiedLTO is enabled for
+  /// ThinLTO or Full LTO with module summaries.
+  bool shouldEmitUnifiedLTOModueFlag() const {
+    return CodeGenOpts.UnifiedLTO &&
+           (CodeGenOpts.PrepareForThinLTO || shouldEmitRegularLTOSummary());
+  }
+
 public:
   EmitAssemblyHelper(DiagnosticsEngine &_Diags,
                      const HeaderSearchOptions &HeaderSearchOpts,
@@ -401,6 +409,7 @@ static bool initTargetOptions(DiagnosticsEngine &Diags,
   Options.UniqueBasicBlockSectionNames =
       CodeGenOpts.UniqueBasicBlockSectionNames;
   Options.TLSSize = CodeGenOpts.TLSSize;
+  Options.EnableTLSDESC = CodeGenOpts.EnableTLSDESC;
   Options.EmulatedTLS = CodeGenOpts.EmulatedTLS;
   Options.DebuggerTuning = CodeGenOpts.getDebuggerTuning();
   Options.EmitStackSizeSection = CodeGenOpts.StackSizeSection;
@@ -881,7 +890,7 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
           << PluginFN << toString(PassPlugin.takeError());
     }
   }
-  for (auto PassCallback : CodeGenOpts.PassBuilderCallbacks)
+  for (const auto &PassCallback : CodeGenOpts.PassBuilderCallbacks)
     PassCallback(PB);
 #define HANDLE_EXTENSION(Ext)                                                  \
   get##Ext##PluginInfo().RegisterPassBuilderCallbacks(PB);
@@ -1001,8 +1010,9 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
     }
 
     if (CodeGenOpts.FatLTO) {
-      assert(CodeGenOpts.UnifiedLTO && "FatLTO requires UnifiedLTO");
-      MPM.addPass(PB.buildFatLTODefaultPipeline(Level));
+      MPM.addPass(PB.buildFatLTODefaultPipeline(
+          Level, PrepareForThinLTO,
+          PrepareForThinLTO || shouldEmitRegularLTOSummary()));
     } else if (PrepareForThinLTO) {
       MPM.addPass(PB.buildThinLTOPreLinkDefaultPipeline(Level));
     } else if (PrepareForLTO) {
@@ -1027,7 +1037,8 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
   if (!actionRequiresCodeGen(Action) && CodeGenOpts.VerifyModule)
     MPM.addPass(VerifierPass());
 
-  if (Action == Backend_EmitBC || Action == Backend_EmitLL) {
+  if (Action == Backend_EmitBC || Action == Backend_EmitLL ||
+      CodeGenOpts.FatLTO) {
     if (CodeGenOpts.PrepareForThinLTO && !CodeGenOpts.DisableLLVMPasses) {
       if (!TheModule->getModuleFlag("EnableSplitLTOUnit"))
         TheModule->addModuleFlag(llvm::Module::Error, "EnableSplitLTOUnit",
@@ -1038,11 +1049,9 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
           if (!ThinLinkOS)
             return;
         }
-        if (CodeGenOpts.UnifiedLTO)
-          TheModule->addModuleFlag(llvm::Module::Error, "UnifiedLTO", uint32_t(1));
         MPM.addPass(ThinLTOBitcodeWriterPass(
             *OS, ThinLinkOS ? &ThinLinkOS->os() : nullptr));
-      } else {
+      } else if (Action == Backend_EmitLL) {
         MPM.addPass(PrintModulePass(*OS, "", CodeGenOpts.EmitLLVMUseLists,
                                     /*EmitLTOSummary=*/true));
       }
@@ -1056,28 +1065,17 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
         if (!TheModule->getModuleFlag("EnableSplitLTOUnit"))
           TheModule->addModuleFlag(llvm::Module::Error, "EnableSplitLTOUnit",
                                    uint32_t(1));
-        if (CodeGenOpts.UnifiedLTO)
-          TheModule->addModuleFlag(llvm::Module::Error, "UnifiedLTO", uint32_t(1));
       }
-      if (Action == Backend_EmitBC)
+      if (Action == Backend_EmitBC) {
         MPM.addPass(BitcodeWriterPass(*OS, CodeGenOpts.EmitLLVMUseLists,
                                       EmitLTOSummary));
-      else
+      } else if (Action == Backend_EmitLL) {
         MPM.addPass(PrintModulePass(*OS, "", CodeGenOpts.EmitLLVMUseLists,
                                     EmitLTOSummary));
+      }
     }
-  }
-  if (CodeGenOpts.FatLTO) {
-    // Set module flags, like EnableSplitLTOUnit and UnifiedLTO, since FatLTO
-    // uses a different action than Backend_EmitBC or Backend_EmitLL.
-    if (!TheModule->getModuleFlag("ThinLTO"))
-      TheModule->addModuleFlag(llvm::Module::Error, "ThinLTO",
-                               uint32_t(CodeGenOpts.PrepareForThinLTO));
-    if (!TheModule->getModuleFlag("EnableSplitLTOUnit"))
-      TheModule->addModuleFlag(llvm::Module::Error, "EnableSplitLTOUnit",
-                               uint32_t(CodeGenOpts.EnableSplitLTOUnit));
-    // FatLTO always means UnifiedLTO
-    if (!TheModule->getModuleFlag("UnifiedLTO"))
+
+    if (shouldEmitUnifiedLTOModueFlag())
       TheModule->addModuleFlag(llvm::Module::Error, "UnifiedLTO", uint32_t(1));
   }
 

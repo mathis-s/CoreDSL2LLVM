@@ -1181,7 +1181,11 @@ extern void __kmp_init_target_task();
 #define KMP_MIN_STKSIZE ((size_t)(32 * 1024))
 #endif
 
+#if KMP_OS_AIX && KMP_ARCH_PPC
+#define KMP_MAX_STKSIZE 0x10000000 /* 256Mb max size on 32-bit AIX */
+#else
 #define KMP_MAX_STKSIZE (~((size_t)1 << ((sizeof(size_t) * (1 << 3)) - 1)))
+#endif
 
 #if KMP_ARCH_X86
 #define KMP_DEFAULT_STKSIZE ((size_t)(2 * 1024 * 1024))
@@ -1191,6 +1195,9 @@ extern void __kmp_init_target_task();
 #elif KMP_ARCH_VE
 // Minimum stack size for pthread for VE is 4MB.
 //   https://www.hpc.nec/documents/veos/en/glibc/Difference_Points_glibc.htm
+#define KMP_DEFAULT_STKSIZE ((size_t)(4 * 1024 * 1024))
+#elif KMP_OS_AIX
+// The default stack size for worker threads on AIX is 4MB.
 #define KMP_DEFAULT_STKSIZE ((size_t)(4 * 1024 * 1024))
 #else
 #define KMP_DEFAULT_STKSIZE ((size_t)(1024 * 1024))
@@ -1352,6 +1359,10 @@ extern kmp_uint64 __kmp_now_nsec();
 #define KMP_NEXT_WAIT 512U /* susequent number of spin-tests */
 #elif KMP_OS_WASI
 /* TODO: tune for KMP_OS_WASI */
+#define KMP_INIT_WAIT 1024U /* initial number of spin-tests   */
+#define KMP_NEXT_WAIT 512U /* susequent number of spin-tests */
+#elif KMP_OS_AIX
+/* TODO: tune for KMP_OS_AIX */
 #define KMP_INIT_WAIT 1024U /* initial number of spin-tests   */
 #define KMP_NEXT_WAIT 512U /* susequent number of spin-tests */
 #endif
@@ -2487,14 +2498,15 @@ typedef struct kmp_dephash_entry kmp_dephash_entry_t;
 #define KMP_DEP_MTX 0x4
 #define KMP_DEP_SET 0x8
 #define KMP_DEP_ALL 0x80
-// Compiler sends us this info:
+// Compiler sends us this info. Note: some test cases contain an explicit copy
+// of this struct and should be in sync with any changes here.
 typedef struct kmp_depend_info {
   kmp_intptr_t base_addr;
   size_t len;
   union {
     kmp_uint8 flag; // flag as an unsigned char
     struct { // flag as a set of 8 bits
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
       /* Same fields as in the #else branch, but in reverse order */
       unsigned all : 1;
       unsigned unused : 3;
@@ -2659,7 +2671,7 @@ typedef struct kmp_task_stack {
 #endif // BUILD_TIED_TASK_STACK
 
 typedef struct kmp_tasking_flags { /* Total struct must be exactly 32 bits */
-#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__)
   /* Same fields as in the #else branch, but in reverse order */
 #if OMPX_TASKGRAPH
   unsigned reserved31 : 6;

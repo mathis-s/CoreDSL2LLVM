@@ -84,11 +84,13 @@ endif()
 
 if (LIBCXX_ENABLE_LOCALIZATION)
   list(APPEND LIBCXX_SOURCES
+    fstream.cpp
     include/sso_allocator.h
     ios.cpp
     ios.instantiations.cpp
     iostream.cpp
     locale.cpp
+    ostream.cpp
     regex.cpp
     strstream.cpp
     )
@@ -228,7 +230,7 @@ if (LIBCXX_ENABLE_SHARED)
   # Maybe re-export symbols from libc++abi
   # In particular, we don't re-export the symbols if libc++abi is merged statically
   # into libc++ because in that case there's no dylib to re-export from.
-  if (APPLE AND LIBCXX_CXX_ABI STREQUAL "libcxxabi"
+  if (APPLE AND LIBCXX_CXX_ABI MATCHES "libcxxabi$"
             AND NOT DEFINED LIBCXX_OSX_REEXPORT_LIBCXXABI_SYMBOLS
             AND NOT LIBCXX_STATICALLY_LINK_ABI_IN_SHARED_LIBRARY)
     set(LIBCXX_OSX_REEXPORT_LIBCXXABI_SYMBOLS ON)
@@ -304,7 +306,10 @@ if (LIBCXX_ENABLE_STATIC)
     # then its code shouldn't declare them with hidden visibility.  They might
     # actually be provided by a shared library at link time.
     if (LIBCXX_ENABLE_NEW_DELETE_DEFINITIONS)
-      append_flags_if_supported(CXX_STATIC_LIBRARY_FLAGS -fvisibility-global-new-delete-hidden)
+      append_flags_if_supported(CXX_STATIC_LIBRARY_FLAGS -fvisibility-global-new-delete=force-hidden)
+      if (NOT CXX_SUPPORTS_FVISIBILITY_GLOBAL_NEW_DELETE_EQ_FORCE_HIDDEN_FLAG)
+        append_flags_if_supported(CXX_STATIC_LIBRARY_FLAGS -fvisibility-global-new-delete-hidden)
+      endif()
     endif()
     target_compile_options(cxx_static PRIVATE ${CXX_STATIC_LIBRARY_FLAGS})
     # _LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS can be defined in __config_site
@@ -397,10 +402,14 @@ if (NOT CMAKE_CONFIGURATION_TYPES)
     if(LIBCXX_INSTALL_HEADERS)
       set(header_install_target install-cxx-headers)
     endif()
+    if(LIBCXX_INSTALL_MODULES)
+      set(module_install_target install-cxx-modules)
+    endif()
     add_custom_target(install-cxx
                       DEPENDS ${lib_install_target}
                               cxx_experimental
                               ${header_install_target}
+                              ${module_install_target}
                       COMMAND "${CMAKE_COMMAND}"
                       -DCMAKE_INSTALL_COMPONENT=cxx
                       -P "${LIBCXX_BINARY_DIR}/cmake_install.cmake")
@@ -408,6 +417,7 @@ if (NOT CMAKE_CONFIGURATION_TYPES)
                       DEPENDS ${lib_install_target}
                               cxx_experimental
                               ${header_install_target}
+                              ${module_install_target}
                       COMMAND "${CMAKE_COMMAND}"
                       -DCMAKE_INSTALL_COMPONENT=cxx
                       -DCMAKE_INSTALL_DO_STRIP=1

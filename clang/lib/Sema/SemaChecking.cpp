@@ -1219,8 +1219,8 @@ void Sema::checkFortifiedBuiltinMemoryFunction(FunctionDecl *FD,
     if (IsChkVariant) {
       FunctionName = FunctionName.drop_front(std::strlen("__builtin___"));
       FunctionName = FunctionName.drop_back(std::strlen("_chk"));
-    } else if (FunctionName.starts_with("__builtin_")) {
-      FunctionName = FunctionName.drop_front(std::strlen("__builtin_"));
+    } else {
+      FunctionName.consume_front("__builtin_");
     }
     return FunctionName;
   };
@@ -2169,6 +2169,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     ICEArguments &= ~(1 << ArgNo);
   }
 
+  FPOptions FPO;
   switch (BuiltinID) {
   case Builtin::BI__builtin___CFStringMakeConstantString:
     // CFStringMakeConstantString is currently not implemented for GOFF (i.e.,
@@ -2245,15 +2246,15 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
   case Builtin::BI__builtin_islessequal:
   case Builtin::BI__builtin_islessgreater:
   case Builtin::BI__builtin_isunordered:
-    if (SemaBuiltinUnorderedCompare(TheCall))
+    if (SemaBuiltinUnorderedCompare(TheCall, BuiltinID))
       return ExprError();
     break;
   case Builtin::BI__builtin_fpclassify:
-    if (SemaBuiltinFPClassification(TheCall, 6))
+    if (SemaBuiltinFPClassification(TheCall, 6, BuiltinID))
       return ExprError();
     break;
   case Builtin::BI__builtin_isfpclass:
-    if (SemaBuiltinFPClassification(TheCall, 2))
+    if (SemaBuiltinFPClassification(TheCall, 2, BuiltinID))
       return ExprError();
     break;
   case Builtin::BI__builtin_isfinite:
@@ -2267,7 +2268,7 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
   case Builtin::BI__builtin_signbit:
   case Builtin::BI__builtin_signbitf:
   case Builtin::BI__builtin_signbitl:
-    if (SemaBuiltinFPClassification(TheCall, 1))
+    if (SemaBuiltinFPClassification(TheCall, 1, BuiltinID))
       return ExprError();
     break;
   case Builtin::BI__builtin_shufflevector:
@@ -2998,7 +2999,26 @@ static QualType getNeonEltType(NeonTypeFlags Flags, ASTContext &Context,
   llvm_unreachable("Invalid NeonTypeFlag!");
 }
 
-enum ArmStreamingType { ArmNonStreaming, ArmStreaming, ArmStreamingCompatible };
+enum ArmStreamingType {
+  ArmNonStreaming,
+  ArmStreaming,
+  ArmStreamingCompatible,
+  ArmStreamingOrSVE2p1
+};
+
+enum ArmSMEState : unsigned {
+  ArmNoState = 0,
+
+  ArmInZA = 0b01,
+  ArmOutZA = 0b10,
+  ArmInOutZA = 0b11,
+  ArmZAMask = 0b11,
+
+  ArmInZT0 = 0b01 << 2,
+  ArmOutZT0 = 0b10 << 2,
+  ArmInOutZT0 = 0b11 << 2,
+  ArmZT0Mask = 0b11 << 2
+};
 
 bool Sema::ParseSVEImmChecks(
     CallExpr *TheCall, SmallVector<std::tuple<int, int, int>, 3> &ImmChecks) {
@@ -3156,6 +3176,15 @@ static void checkArmStreamingBuiltin(Sema &S, CallExpr *TheCall,
                                      const FunctionDecl *FD,
                                      ArmStreamingType BuiltinType) {
   ArmStreamingType FnType = getArmStreamingFnType(FD);
+  if (BuiltinType == ArmStreamingOrSVE2p1) {
+    // Check intrinsics that are available in [sve2p1 or sme/sme2].
+    llvm::StringMap<bool> CallerFeatureMap;
+    S.Context.getFunctionFeatureMap(CallerFeatureMap, FD);
+    if (Builtin::evaluateRequiredTargetFeatures("sve2p1", CallerFeatureMap))
+      BuiltinType = ArmStreamingCompatible;
+    else
+      BuiltinType = ArmStreaming;
+  }
 
   if (FnType == ArmStreaming && BuiltinType == ArmNonStreaming) {
     S.Diag(TheCall->getBeginLoc(), diag::warn_attribute_arm_sm_incompat_builtin)
@@ -3168,9 +3197,87 @@ static void checkArmStreamingBuiltin(Sema &S, CallExpr *TheCall,
         << TheCall->getSourceRange() << "streaming compatible";
     return;
   }
+
+  if (FnType == ArmNonStreaming && BuiltinType == ArmStreaming) {
+    S.Diag(TheCall->getBeginLoc(), diag::warn_attribute_arm_sm_incompat_builtin)
+        << TheCall->getSourceRange() << "non-streaming";
+  }
+}
+
+static bool hasArmZAState(const FunctionDecl *FD) {
+  const auto *T = FD->getType()->getAs<FunctionProtoType>();
+  return (T && FunctionType::getArmZAState(T->getAArch64SMEAttributes()) !=
+                   FunctionType::ARM_None) ||
+         (FD->hasAttr<ArmNewAttr>() && FD->getAttr<ArmNewAttr>()->isNewZA());
+}
+
+static bool hasArmZT0State(const FunctionDecl *FD) {
+  const auto *T = FD->getType()->getAs<FunctionProtoType>();
+  return (T && FunctionType::getArmZT0State(T->getAArch64SMEAttributes()) !=
+                   FunctionType::ARM_None) ||
+         (FD->hasAttr<ArmNewAttr>() && FD->getAttr<ArmNewAttr>()->isNewZT0());
+}
+
+static ArmSMEState getSMEState(unsigned BuiltinID) {
+  switch (BuiltinID) {
+  default:
+    return ArmNoState;
+#define GET_SME_BUILTIN_GET_STATE
+#include "clang/Basic/arm_sme_builtins_za_state.inc"
+#undef GET_SME_BUILTIN_GET_STATE
+  }
+}
+
+bool Sema::CheckSMEBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
+  if (const FunctionDecl *FD = getCurFunctionDecl()) {
+    std::optional<ArmStreamingType> BuiltinType;
+
+    switch (BuiltinID) {
+#define GET_SME_STREAMING_ATTRS
+#include "clang/Basic/arm_sme_streaming_attrs.inc"
+#undef GET_SME_STREAMING_ATTRS
+    }
+
+    if (BuiltinType)
+      checkArmStreamingBuiltin(*this, TheCall, FD, *BuiltinType);
+
+    if ((getSMEState(BuiltinID) & ArmZAMask) && !hasArmZAState(FD))
+      Diag(TheCall->getBeginLoc(),
+           diag::warn_attribute_arm_za_builtin_no_za_state)
+          << TheCall->getSourceRange();
+
+    if ((getSMEState(BuiltinID) & ArmZT0Mask) && !hasArmZT0State(FD))
+      Diag(TheCall->getBeginLoc(),
+           diag::warn_attribute_arm_zt0_builtin_no_zt0_state)
+          << TheCall->getSourceRange();
+  }
+
+  // Range check SME intrinsics that take immediate values.
+  SmallVector<std::tuple<int, int, int>, 3> ImmChecks;
+
+  switch (BuiltinID) {
+  default:
+    return false;
+#define GET_SME_IMMEDIATE_CHECK
+#include "clang/Basic/arm_sme_sema_rangechecks.inc"
+#undef GET_SME_IMMEDIATE_CHECK
+  }
+
+  return ParseSVEImmChecks(TheCall, ImmChecks);
 }
 
 bool Sema::CheckSVEBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
+  if (const FunctionDecl *FD = getCurFunctionDecl()) {
+    std::optional<ArmStreamingType> BuiltinType;
+
+    switch (BuiltinID) {
+#define GET_SVE_STREAMING_ATTRS
+#include "clang/Basic/arm_sve_streaming_attrs.inc"
+#undef GET_SVE_STREAMING_ATTRS
+    }
+    if (BuiltinType)
+      checkArmStreamingBuiltin(*this, TheCall, FD, *BuiltinType);
+  }
   // Range check SVE intrinsics that take immediate values.
   SmallVector<std::tuple<int, int, int>, 3> ImmChecks;
 
@@ -3180,9 +3287,6 @@ bool Sema::CheckSVEBuiltinFunctionCall(unsigned BuiltinID, CallExpr *TheCall) {
 #define GET_SVE_IMMEDIATE_CHECK
 #include "clang/Basic/arm_sve_sema_rangechecks.inc"
 #undef GET_SVE_IMMEDIATE_CHECK
-#define GET_SME_IMMEDIATE_CHECK
-#include "clang/Basic/arm_sme_sema_rangechecks.inc"
-#undef GET_SME_IMMEDIATE_CHECK
   }
 
   return ParseSVEImmChecks(TheCall, ImmChecks);
@@ -3567,6 +3671,9 @@ bool Sema::CheckAArch64BuiltinFunctionCall(const TargetInfo &TI,
     return true;
 
   if (CheckSVEBuiltinFunctionCall(BuiltinID, TheCall))
+    return true;
+
+  if (CheckSMEBuiltinFunctionCall(BuiltinID, TheCall))
     return true;
 
   // For intrinsics which take an immediate value as part of the instruction,
@@ -5321,15 +5428,17 @@ bool Sema::CheckRISCVBuiltinFunctionCall(const TargetInfo &TI,
     QualType Op1Type = TheCall->getArg(0)->getType();
     QualType Op2Type = TheCall->getArg(1)->getType();
     QualType Op3Type = TheCall->getArg(2)->getType();
-    uint64_t ElemSize = Op1Type->isRVVType(32, false) ? 32 : 64;
-    if (ElemSize == 64 && !TI.hasFeature("experimental-zvknhb"))
+    ASTContext::BuiltinVectorTypeInfo Info =
+        Context.getBuiltinVectorTypeInfo(Op1Type->castAs<BuiltinType>());
+    uint64_t ElemSize = Context.getTypeSize(Info.ElementType);
+    if (ElemSize == 64 && !TI.hasFeature("zvknhb"))
       return Diag(TheCall->getBeginLoc(),
-                  diag::err_riscv_type_requires_extension)
-             << Op1Type << "zvknhb";
+                  diag::err_riscv_builtin_requires_extension)
+             << /* IsExtension */ true << TheCall->getSourceRange() << "zvknb";
 
-    return CheckInvalidVLENandLMUL(TI, TheCall, *this, Op1Type, ElemSize << 2) ||
-           CheckInvalidVLENandLMUL(TI, TheCall, *this, Op2Type, ElemSize << 2) ||
-           CheckInvalidVLENandLMUL(TI, TheCall, *this, Op3Type, ElemSize << 2);
+    return CheckInvalidVLENandLMUL(TI, TheCall, *this, Op1Type, ElemSize * 4) ||
+           CheckInvalidVLENandLMUL(TI, TheCall, *this, Op2Type, ElemSize * 4) ||
+           CheckInvalidVLENandLMUL(TI, TheCall, *this, Op3Type, ElemSize * 4);
   }
 
   case RISCVVector::BI__builtin_rvv_sf_vc_i_se_u8mf8:
@@ -6103,30 +6212,33 @@ bool Sema::CheckWebAssemblyBuiltinFunctionCall(const TargetInfo &TI,
 
 void Sema::checkRVVTypeSupport(QualType Ty, SourceLocation Loc, Decl *D) {
   const TargetInfo &TI = Context.getTargetInfo();
+
+  ASTContext::BuiltinVectorTypeInfo Info =
+      Context.getBuiltinVectorTypeInfo(Ty->castAs<BuiltinType>());
+  unsigned EltSize = Context.getTypeSize(Info.ElementType);
+  unsigned MinElts = Info.EC.getKnownMinValue();
+
   // (ELEN, LMUL) pairs of (8, mf8), (16, mf4), (32, mf2), (64, m1) requires at
   // least zve64x
-  if ((Ty->isRVVType(/* Bitwidth */ 64, /* IsFloat */ false) ||
-       Ty->isRVVType(/* ElementCount */ 1)) &&
+  if (((EltSize == 64 && Info.ElementType->isIntegerType()) || MinElts == 1) &&
       !TI.hasFeature("zve64x"))
     Diag(Loc, diag::err_riscv_type_requires_extension, D) << Ty << "zve64x";
-  if (Ty->isRVVType(/* Bitwidth */ 16, /* IsFloat */ true) &&
-      !TI.hasFeature("zvfh") && !TI.hasFeature("zvfhmin"))
+  else if (Info.ElementType->isFloat16Type() && !TI.hasFeature("zvfh") &&
+           !TI.hasFeature("zvfhmin"))
     Diag(Loc, diag::err_riscv_type_requires_extension, D)
         << Ty << "zvfh or zvfhmin";
-  // Check if enabled zvfbfmin for BFloat16
-  if (Ty->isRVVType(/* Bitwidth */ 16, /* IsFloat */ false,
-                    /* IsBFloat */ true) &&
-      !TI.hasFeature("experimental-zvfbfmin"))
+  else if (Info.ElementType->isBFloat16Type() &&
+           !TI.hasFeature("experimental-zvfbfmin"))
     Diag(Loc, diag::err_riscv_type_requires_extension, D) << Ty << "zvfbfmin";
-  if (Ty->isRVVType(/* Bitwidth */ 32, /* IsFloat */ true) &&
-      !TI.hasFeature("zve32f"))
+  else if (Info.ElementType->isSpecificBuiltinType(BuiltinType::Float) &&
+           !TI.hasFeature("zve32f"))
     Diag(Loc, diag::err_riscv_type_requires_extension, D) << Ty << "zve32f";
-  if (Ty->isRVVType(/* Bitwidth */ 64, /* IsFloat */ true) &&
-      !TI.hasFeature("zve64d"))
+  else if (Info.ElementType->isSpecificBuiltinType(BuiltinType::Double) &&
+           !TI.hasFeature("zve64d"))
     Diag(Loc, diag::err_riscv_type_requires_extension, D) << Ty << "zve64d";
   // Given that caller already checked isRVVType() before calling this function,
   // if we don't have at least zve32x supported, then we need to emit error.
-  if (!TI.hasFeature("zve32x"))
+  else if (!TI.hasFeature("zve32x"))
     Diag(Loc, diag::err_riscv_type_requires_extension, D) << Ty << "zve32x";
 }
 
@@ -7433,20 +7545,43 @@ void Sema::checkCall(NamedDecl *FDecl, const FunctionProtoType *Proto,
       }
     }
 
-    // If the callee uses AArch64 SME ZA state but the caller doesn't define
-    // any, then this is an error.
-    if (ExtInfo.AArch64SMEAttributes & FunctionType::SME_PStateZASharedMask) {
+    FunctionType::ArmStateValue CalleeArmZAState =
+        FunctionType::getArmZAState(ExtInfo.AArch64SMEAttributes);
+    FunctionType::ArmStateValue CalleeArmZT0State =
+        FunctionType::getArmZT0State(ExtInfo.AArch64SMEAttributes);
+    if (CalleeArmZAState != FunctionType::ARM_None ||
+        CalleeArmZT0State != FunctionType::ARM_None) {
       bool CallerHasZAState = false;
+      bool CallerHasZT0State = false;
       if (const auto *CallerFD = dyn_cast<FunctionDecl>(CurContext)) {
-        if (CallerFD->hasAttr<ArmNewZAAttr>())
+        auto *Attr = CallerFD->getAttr<ArmNewAttr>();
+        if (Attr && Attr->isNewZA())
           CallerHasZAState = true;
-        else if (const auto *FPT = CallerFD->getType()->getAs<FunctionProtoType>())
-          CallerHasZAState = FPT->getExtProtoInfo().AArch64SMEAttributes &
-                             FunctionType::SME_PStateZASharedMask;
+        if (Attr && Attr->isNewZT0())
+          CallerHasZT0State = true;
+        if (const auto *FPT = CallerFD->getType()->getAs<FunctionProtoType>()) {
+          CallerHasZAState |=
+              FunctionType::getArmZAState(
+                  FPT->getExtProtoInfo().AArch64SMEAttributes) !=
+              FunctionType::ARM_None;
+          CallerHasZT0State |=
+              FunctionType::getArmZT0State(
+                  FPT->getExtProtoInfo().AArch64SMEAttributes) !=
+              FunctionType::ARM_None;
+        }
       }
 
-      if (!CallerHasZAState)
+      if (CalleeArmZAState != FunctionType::ARM_None && !CallerHasZAState)
         Diag(Loc, diag::err_sme_za_call_no_za_state);
+
+      if (CalleeArmZT0State != FunctionType::ARM_None && !CallerHasZT0State)
+        Diag(Loc, diag::err_sme_zt0_call_no_zt0_state);
+
+      if (CallerHasZAState && CalleeArmZAState == FunctionType::ARM_None &&
+          CalleeArmZT0State != FunctionType::ARM_None) {
+        Diag(Loc, diag::err_sme_unimplemented_za_save_restore);
+        Diag(Loc, diag::note_sme_use_preserves_za);
+      }
     }
   }
 
@@ -7504,9 +7639,8 @@ bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
   unsigned NumArgs = TheCall->getNumArgs();
 
   Expr *ImplicitThis = nullptr;
-  if (IsMemberOperatorCall && !FDecl->isStatic() &&
-      !FDecl->hasCXXExplicitFunctionObjectParameter()) {
-    // If this is a call to a non-static member operator, hide the first
+  if (IsMemberOperatorCall && !FDecl->hasCXXExplicitFunctionObjectParameter()) {
+    // If this is a call to a member operator, hide the first
     // argument from checkCall.
     // FIXME: Our choice of AST representation here is less than ideal.
     ImplicitThis = Args[0];
@@ -7549,6 +7683,7 @@ bool Sema::CheckFunctionCall(FunctionDecl *FDecl, CallExpr *TheCall,
 
   CheckAbsoluteValueFunction(TheCall, FDecl);
   CheckMaxUnsignedZero(TheCall, FDecl);
+  CheckInfNaNFunction(TheCall, FDecl);
 
   if (getLangOpts().ObjC)
     DiagnoseCStringFormatDirectiveInCFAPI(*this, FDecl, Args, NumArgs);
@@ -9018,9 +9153,14 @@ bool Sema::SemaBuiltinVAStartARMMicrosoft(CallExpr *Call) {
 
 /// SemaBuiltinUnorderedCompare - Handle functions like __builtin_isgreater and
 /// friends.  This is declared to take (...), so we have to check everything.
-bool Sema::SemaBuiltinUnorderedCompare(CallExpr *TheCall) {
+bool Sema::SemaBuiltinUnorderedCompare(CallExpr *TheCall, unsigned BuiltinID) {
   if (checkArgCount(*this, TheCall, 2))
     return true;
+
+  if (BuiltinID == Builtin::BI__builtin_isunordered &&
+      TheCall->getFPFeaturesInEffect(getLangOpts()).getNoHonorNaNs())
+    Diag(TheCall->getBeginLoc(), diag::warn_fp_nan_inf_when_disabled)
+        << 1 << 0 << TheCall->getSourceRange();
 
   ExprResult OrigArg0 = TheCall->getArg(0);
   ExprResult OrigArg1 = TheCall->getArg(1);
@@ -9056,9 +9196,22 @@ bool Sema::SemaBuiltinUnorderedCompare(CallExpr *TheCall) {
 /// SemaBuiltinSemaBuiltinFPClassification - Handle functions like
 /// __builtin_isnan and friends.  This is declared to take (...), so we have
 /// to check everything.
-bool Sema::SemaBuiltinFPClassification(CallExpr *TheCall, unsigned NumArgs) {
+bool Sema::SemaBuiltinFPClassification(CallExpr *TheCall, unsigned NumArgs,
+                                       unsigned BuiltinID) {
   if (checkArgCount(*this, TheCall, NumArgs))
     return true;
+
+  FPOptions FPO = TheCall->getFPFeaturesInEffect(getLangOpts());
+  if (FPO.getNoHonorInfs() && (BuiltinID == Builtin::BI__builtin_isfinite ||
+                               BuiltinID == Builtin::BI__builtin_isinf ||
+                               BuiltinID == Builtin::BI__builtin_isinf_sign))
+    Diag(TheCall->getBeginLoc(), diag::warn_fp_nan_inf_when_disabled)
+        << 0 << 0 << TheCall->getSourceRange();
+
+  if (FPO.getNoHonorNaNs() && (BuiltinID == Builtin::BI__builtin_isnan ||
+                               BuiltinID == Builtin::BI__builtin_isunordered))
+    Diag(TheCall->getBeginLoc(), diag::warn_fp_nan_inf_when_disabled)
+        << 1 << 0 << TheCall->getSourceRange();
 
   bool IsFPClass = NumArgs == 2;
 
@@ -12804,6 +12957,22 @@ static bool IsStdFunction(const FunctionDecl *FDecl,
     return false;
 
   return true;
+}
+
+void Sema::CheckInfNaNFunction(const CallExpr *Call,
+                               const FunctionDecl *FDecl) {
+  FPOptions FPO = Call->getFPFeaturesInEffect(getLangOpts());
+  if ((IsStdFunction(FDecl, "isnan") || IsStdFunction(FDecl, "isunordered") ||
+       (Call->getBuiltinCallee() == Builtin::BI__builtin_nanf)) &&
+      FPO.getNoHonorNaNs())
+    Diag(Call->getBeginLoc(), diag::warn_fp_nan_inf_when_disabled)
+        << 1 << 0 << Call->getSourceRange();
+  else if ((IsStdFunction(FDecl, "isinf") ||
+            (IsStdFunction(FDecl, "isfinite") ||
+             (FDecl->getIdentifier() && FDecl->getName() == "infinity"))) &&
+           FPO.getNoHonorInfs())
+    Diag(Call->getBeginLoc(), diag::warn_fp_nan_inf_when_disabled)
+        << 0 << 0 << Call->getSourceRange();
 }
 
 // Warn when using the wrong abs() function.
@@ -16605,7 +16774,7 @@ class SequenceChecker : public ConstEvaluatedExprVisitor<SequenceChecker> {
     /// Have we issued a diagnostic for this object already?
     bool Diagnosed = false;
 
-    UsageInfo() = default;
+    UsageInfo();
   };
   using UsageInfoMap = llvm::SmallDenseMap<Object, UsageInfo, 16>;
 
@@ -17363,6 +17532,8 @@ public:
       Tree.merge(Elts[I]);
   }
 };
+
+SequenceChecker::UsageInfo::UsageInfo() = default;
 
 } // namespace
 
@@ -18287,7 +18458,7 @@ static bool isSetterLikeSelector(Selector sel) {
   if (sel.isUnarySelector()) return false;
 
   StringRef str = sel.getNameForSlot(0);
-  while (!str.empty() && str.front() == '_') str = str.substr(1);
+  str = str.ltrim('_');
   if (str.starts_with("set"))
     str = str.substr(3);
   else if (str.starts_with("add")) {

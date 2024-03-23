@@ -169,12 +169,8 @@ Value *SCEVExpander::InsertNoopCastOfTo(Value *V, Type *Ty) {
   // during expansion.
   if (Op == Instruction::IntToPtr) {
     auto *PtrTy = cast<PointerType>(Ty);
-    if (DL.isNonIntegralPointerType(PtrTy)) {
-      assert(DL.getTypeAllocSize(Builder.getInt8Ty()) == 1 &&
-             "alloc size of i8 must by 1 byte for the GEP to be correct");
-      return Builder.CreateGEP(
-          Builder.getInt8Ty(), Constant::getNullValue(PtrTy), V, "scevgep");
-    }
+    if (DL.isNonIntegralPointerType(PtrTy))
+      return Builder.CreatePtrAdd(Constant::getNullValue(PtrTy), V, "scevgep");
   }
   // Short-circuit unnecessary bitcasts.
   if (Op == Instruction::BitCast) {
@@ -321,7 +317,7 @@ Value *SCEVExpander::expandAddToGEP(const SCEV *Offset, Value *V) {
   // Fold a GEP with constant operands.
   if (Constant *CLHS = dyn_cast<Constant>(V))
     if (Constant *CRHS = dyn_cast<Constant>(Idx))
-      return Builder.CreateGEP(Builder.getInt8Ty(), CLHS, CRHS);
+      return Builder.CreatePtrAdd(CLHS, CRHS);
 
   // Do a quick scan to see if we have this GEP nearby.  If so, reuse it.
   unsigned ScanLimit = 6;
@@ -358,7 +354,7 @@ Value *SCEVExpander::expandAddToGEP(const SCEV *Offset, Value *V) {
   }
 
   // Emit a GEP.
-  return Builder.CreateGEP(Builder.getInt8Ty(), V, Idx, "scevgep");
+  return Builder.CreatePtrAdd(V, Idx, "scevgep");
 }
 
 /// PickMostRelevantLoop - Given two loops pick the one that's most relevant for
@@ -1370,61 +1366,6 @@ Value *SCEVExpander::expandCodeFor(const SCEV *SH, Type *Ty) {
   return V;
 }
 
-static bool
-canReuseInstruction(ScalarEvolution &SE, const SCEV *S, Instruction *I,
-                    SmallVectorImpl<Instruction *> &DropPoisonGeneratingInsts) {
-  // If the instruction cannot be poison, it's always safe to reuse.
-  if (programUndefinedIfPoison(I))
-    return true;
-
-  // Otherwise, it is possible that I is more poisonous that S. Collect the
-  // poison-contributors of S, and then check whether I has any additional
-  // poison-contributors. Poison that is contributed through poison-generating
-  // flags is handled by dropping those flags instead.
-  SmallPtrSet<const Value *, 8> PoisonVals;
-  SE.getPoisonGeneratingValues(PoisonVals, S);
-
-  SmallVector<Value *> Worklist;
-  SmallPtrSet<Value *, 8> Visited;
-  Worklist.push_back(I);
-  while (!Worklist.empty()) {
-    Value *V = Worklist.pop_back_val();
-    if (!Visited.insert(V).second)
-      continue;
-
-    // Avoid walking large instruction graphs.
-    if (Visited.size() > 16)
-      return false;
-
-    // Either the value can't be poison, or the S would also be poison if it
-    // is.
-    if (PoisonVals.contains(V) || isGuaranteedNotToBePoison(V))
-      continue;
-
-    auto *I = dyn_cast<Instruction>(V);
-    if (!I)
-      return false;
-
-    // FIXME: Ignore vscale, even though it technically could be poison. Do this
-    // because SCEV currently assumes it can't be poison. Remove this special
-    // case once we proper model when vscale can be poison.
-    if (auto *II = dyn_cast<IntrinsicInst>(I);
-        II && II->getIntrinsicID() == Intrinsic::vscale)
-      continue;
-
-    if (canCreatePoison(cast<Operator>(I), /*ConsiderFlagsAndMetadata*/ false))
-      return false;
-
-    // If the instruction can't create poison, we can recurse to its operands.
-    if (I->hasPoisonGeneratingFlagsOrMetadata())
-      DropPoisonGeneratingInsts.push_back(I);
-
-    for (Value *Op : I->operands())
-      Worklist.push_back(Op);
-  }
-  return true;
-}
-
 Value *SCEVExpander::FindValueInExprValueMap(
     const SCEV *S, const Instruction *InsertPt,
     SmallVectorImpl<Instruction *> &DropPoisonGeneratingInsts) {
@@ -1452,7 +1393,7 @@ Value *SCEVExpander::FindValueInExprValueMap(
       continue;
 
     // Make sure reusing the instruction is poison-safe.
-    if (canReuseInstruction(SE, S, EntInst, DropPoisonGeneratingInsts))
+    if (SE.canReuseInstruction(S, EntInst, DropPoisonGeneratingInsts))
       return V;
     DropPoisonGeneratingInsts.clear();
   }
@@ -2123,9 +2064,9 @@ Value *SCEVExpander::generateOverflowCheck(const SCEVAddRecExpr *AR,
     if (isa<PointerType>(ARTy)) {
       Value *NegMulV = Builder.CreateNeg(MulV);
       if (NeedPosCheck)
-        Add = Builder.CreateGEP(Builder.getInt8Ty(), StartValue, MulV);
+        Add = Builder.CreatePtrAdd(StartValue, MulV);
       if (NeedNegCheck)
-        Sub = Builder.CreateGEP(Builder.getInt8Ty(), StartValue, NegMulV);
+        Sub = Builder.CreatePtrAdd(StartValue, NegMulV);
     } else {
       if (NeedPosCheck)
         Add = Builder.CreateAdd(StartValue, MulV);

@@ -2828,13 +2828,22 @@ public:
     return AnnotationInfos.find(II)->second;
   }
 
-  void emitMacroExpansionWarnings(const Token &Identifier) const {
-    if (Identifier.getIdentifierInfo()->isDeprecatedMacro())
+  void emitMacroExpansionWarnings(const Token &Identifier,
+                                  bool IsIfnDef = false) const {
+    IdentifierInfo *Info = Identifier.getIdentifierInfo();
+    if (Info->isDeprecatedMacro())
       emitMacroDeprecationWarning(Identifier);
 
-    if (Identifier.getIdentifierInfo()->isRestrictExpansion() &&
+    if (Info->isRestrictExpansion() &&
         !SourceMgr.isInMainFile(Identifier.getLocation()))
       emitRestrictExpansionWarning(Identifier);
+
+    if (!IsIfnDef) {
+      if (Info->getName() == "INFINITY" && getLangOpts().NoHonorInfs)
+        emitRestrictInfNaNWarning(Identifier, 0);
+      if (Info->getName() == "NAN" && getLangOpts().NoHonorNaNs)
+        emitRestrictInfNaNWarning(Identifier, 1);
+    }
   }
 
   static void processPathForFileMacro(SmallVectorImpl<char> &Path,
@@ -2850,6 +2859,8 @@ private:
   void emitMacroDeprecationWarning(const Token &Identifier) const;
   void emitRestrictExpansionWarning(const Token &Identifier) const;
   void emitFinalMacroWarning(const Token &Identifier, bool IsUndef) const;
+  void emitRestrictInfNaNWarning(const Token &Identifier,
+                                 unsigned DiagSelection) const;
 
   /// This boolean state keeps track if the current scanned token (by this PP)
   /// is in an "-Wunsafe-buffer-usage" opt-out region. Assuming PP scans a

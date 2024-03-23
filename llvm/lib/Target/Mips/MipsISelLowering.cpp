@@ -2042,8 +2042,7 @@ SDValue MipsTargetLowering::lowerBRCOND(SDValue Op, SelectionDAG &DAG) const {
     return Op;
 
   SDValue CCNode  = CondRes.getOperand(2);
-  Mips::CondCode CC =
-    (Mips::CondCode)cast<ConstantSDNode>(CCNode)->getZExtValue();
+  Mips::CondCode CC = (Mips::CondCode)CCNode->getAsZExtVal();
   unsigned Opc = invertFPCondCodeUser(CC) ? Mips::BRANCH_F : Mips::BRANCH_T;
   SDValue BrCode = DAG.getConstant(Opc, DL, MVT::i32);
   SDValue FCC0 = DAG.getRegister(Mips::FCC0, MVT::i32);
@@ -2508,7 +2507,7 @@ SDValue MipsTargetLowering::lowerFABS(SDValue Op, SelectionDAG &DAG) const {
 SDValue MipsTargetLowering::
 lowerFRAMEADDR(SDValue Op, SelectionDAG &DAG) const {
   // check the depth
-  if (cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() != 0) {
+  if (Op.getConstantOperandVal(0) != 0) {
     DAG.getContext()->emitError(
         "return address can be determined only for current frame");
     return SDValue();
@@ -2529,7 +2528,7 @@ SDValue MipsTargetLowering::lowerRETURNADDR(SDValue Op,
     return SDValue();
 
   // check the depth
-  if (cast<ConstantSDNode>(Op.getOperand(0))->getZExtValue() != 0) {
+  if (Op.getConstantOperandVal(0) != 0) {
     DAG.getContext()->emitError(
         "return address can be determined only for current frame");
     return SDValue();
@@ -4129,14 +4128,18 @@ MipsTargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
     case 'd': // Address register. Same as 'r' unless generating MIPS16 code.
     case 'y': // Same as 'r'. Exists for compatibility.
     case 'r':
-      if (VT == MVT::i32 || VT == MVT::i16 || VT == MVT::i8 || VT == MVT::i1) {
+      if ((VT == MVT::i32 || VT == MVT::i16 || VT == MVT::i8 ||
+           VT == MVT::i1) ||
+          (VT == MVT::f32 && Subtarget.useSoftFloat())) {
         if (Subtarget.inMips16Mode())
           return std::make_pair(0U, &Mips::CPU16RegsRegClass);
         return std::make_pair(0U, &Mips::GPR32RegClass);
       }
-      if (VT == MVT::i64 && !Subtarget.isGP64bit())
+      if ((VT == MVT::i64 || (VT == MVT::f64 && Subtarget.useSoftFloat())) &&
+          !Subtarget.isGP64bit())
         return std::make_pair(0U, &Mips::GPR32RegClass);
-      if (VT == MVT::i64 && Subtarget.isGP64bit())
+      if ((VT == MVT::i64 || (VT == MVT::f64 && Subtarget.useSoftFloat())) &&
+          Subtarget.isGP64bit())
         return std::make_pair(0U, &Mips::GPR64RegClass);
       // This will generate an error message
       return std::make_pair(0U, nullptr);

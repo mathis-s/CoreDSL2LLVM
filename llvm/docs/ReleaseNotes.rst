@@ -70,8 +70,12 @@ Changes to the LLVM IR
 
 * Added `llvm.exp10` intrinsic.
 
+* Added a ``code_model`` attribute for the `global variable <LangRef.html#global-variables>`_.
+
 Changes to LLVM infrastructure
 ------------------------------
+
+* Minimum Clang version to build LLVM in C++20 configuration has been updated to clang-17.0.6.
 
 Changes to building LLVM
 ------------------------
@@ -101,6 +105,14 @@ Changes to the AArch64 Backend
   Armv9.0a has the same features enabled as Armv8.5a, with the exception
   of crypto.
 
+* Assembler/disassembler support has been added for 2023 architecture
+  extensions.
+
+* Support has been added for Stack Clash Protection. During function frame
+  creation and dynamic stack allocations, the compiler will issue memory
+  accesses at reguilar intervals so that a guard area at the top of the stack
+  can't be skipped over.
+
 Changes to the AMDGPU Backend
 -----------------------------
 
@@ -111,10 +123,13 @@ Changes to the AMDGPU Backend
 
 * Implemented :ref:`llvm.get.rounding <int_get_rounding>`
 
+* The default :ref:`AMDHSA code object version <amdgpu-amdhsa-code-object-metadata-v5>` is now 5.
+
 Changes to the ARM Backend
 --------------------------
 
 * Added support for Cortex-M52 CPUs.
+* Added execute-only support for Armv6-M.
 
 Changes to the AVR Backend
 --------------------------
@@ -128,11 +143,50 @@ Changes to the Hexagon Backend
 Changes to the LoongArch Backend
 --------------------------------
 
+* Added intrinsics support for all LSX (128-bits SIMD) and LASX (256-bits SIMD)
+  instructions.
+* Added definition and intrinsics support for new instructions that were
+  introduced in LoongArch Reference Manual V1.10.
+* Emitted adjacent ``pcaddu18i+jirl`` instrunction sequence with one relocation
+  ``R_LARCH_CALL36`` instead of ``pcalau12i+jirl`` with two relocations
+  ``R_LARCH_PCALA_{HI20,LO12}`` for function call in medium code model.
+* The code model of global variables can now be overridden by means of the newly
+  added LLVM IR attribute, ``code_model``.
+* Added support for the ``llvm.is.fpclass`` intrinsic.
+* ``mulodi4`` and ``muloti4`` libcalls were disabled due to absence in libgcc.
+* Added initial support for auto vectorization.
+* Added initial support for linker relaxation.
+* Assorted codegen improvements.
+
 Changes to the MIPS Backend
 ---------------------------
 
 Changes to the PowerPC Backend
 ------------------------------
+
+* LLJIT's JIT linker now defaults to JITLink on 64-bit ELFv2 targets.
+* Initial-exec TLS model is supported on AIX.
+* Implemented new resource based scheduling model of POWER7 and POWER8.
+* ``frexp`` libcall now references correct symbol name for ``fp128``.
+* Optimized materialization of 64-bit immediates, code generation of
+  ``vec_promote`` and atomics.
+* Global constant strings are pooled in the TOC under one entry to reduce the
+  number of entries in the TOC.
+* Added a number of missing Power10 extended mnemonics.
+* Added the SCV instruction.
+* Fixed register class for the paddi instruction.
+* Optimize VPERM and fix code order for swapping vector operands on LE.
+* Added various bug fixes and code gen improvements.
+
+AIX Support/improvements:
+
+* Support for a non-TOC-based access sequence for the local-exec TLS model (called small local-exec).
+* XCOFF toc-data peephole optimization and bug fixes.
+* Move less often used __ehinfo TOC entries to the end of the TOC section.
+* Fixed problems when the AIX libunwind unwinds starting from a signal handler
+  and the function that raised the signal happens to be a leaf function that
+  shares the stack frame with its caller or a leaf function that does not store
+  the stack frame backchain.
 
 Changes to the RISC-V Backend
 -----------------------------
@@ -141,6 +195,36 @@ Changes to the RISC-V Backend
 * Zihintntl extension version was upgraded to 1.0 and is no longer experimental.
 * Intrinsics were added for Zk*, Zbb, and Zbc. See https://github.com/riscv-non-isa/riscv-c-api-doc/blob/master/riscv-c-api.md#scalar-bit-manipulation-extension-intrinsics
 * Default ABI with F but without D was changed to ilp32f for RV32 and to lp64f for RV64.
+* The Zvbb, Zvbc, Zvkb, Zvkg, Zvkn, Zvknc, Zvkned, Zvkng, Zvknha, Zvknhb, Zvks,
+  Zvksc, Zvksed, Zvksg, Zvksh, and Zvkt extension version was upgraded to 1.0
+  and is no longer experimental.  However, the C intrinsics for these extensions
+  are still experimental.  To use the C intrinsics for these extensions,
+  ``-menable-experimental-extensions`` needs to be passed to Clang.
+* XSfcie extension and SiFive CSRs and instructions that were associated with
+  it have been removed. None of these CSRs and instructions were part of
+  "SiFive Custom Instruction Extension" as SiFive defines it. The LLVM project
+  needs to work with SiFive to define and document real extension names for
+  individual CSRs and instructions.
+* ``-mcpu=sifive-p450`` was added.
+* CodeGen of RV32E/RV64E was supported experimentally.
+* CodeGen of ilp32e/lp64e was supported experimentally.
+* Support was added for the Ziccif, Ziccrse, Ziccamoa, Zicclsm, Za64rs, Za128rs
+  and Zic64b extensions which were introduced as a part of the RISC-V Profiles
+  specification.
+* The Smepmp 1.0 extension is now supported.
+* ``-mcpu=sifive-p670`` was added.
+* Support for the Zicond extension is no longer experimental.
+
+Changes to the SystemZ Backend
+------------------------------
+
+* Properly support 16 byte atomic int/fp types and ops.
+* Support i128 as legal type in VRs.
+* Add an i128 cost model.
+* Support building individual functions with backchain using the
+  __attribute__((target("backchain"))) syntax.
+* Add exception handling for XPLINK.
+* Add support for llvm-objcopy.
 
 Changes to the WebAssembly Backend
 ----------------------------------
@@ -167,6 +251,11 @@ Changes to the X86 Backend
 * Support ISA of ``AVX10.1-256`` and ``AVX10.1-512``.
 * ``-mcpu=pantherlake`` and ``-mcpu=clearwaterforest`` are now supported.
 * ``-mapxf`` is supported.
+* Marking global variables with ``code_model = "small"/"large"`` in the IR now
+  overrides the global code model to allow 32-bit relocations or require 64-bit
+  relocations to the global variable.
+* The medium code model's code generation was audited to be more similar to the
+  small code model where possible.
 
 Changes to the OCaml bindings
 -----------------------------
@@ -261,18 +350,44 @@ Changes to the Debug Info
 Changes to the LLVM tools
 ---------------------------------
 
-* llvm-symbolizer now treats invalid input as an address for which source
+* ``llvm-symbolizer`` now treats invalid input as an address for which source
   information is not found.
-* llvm-readelf now supports ``--extra-sym-info`` (``-X``) to display extra
+* Fixed big-endian support in ``llvm-symbolizer``'s DWARF location parser.
+* ``llvm-readelf`` now supports ``--extra-sym-info`` (``-X``) to display extra
   information (section name) when showing symbols.
+* ``llvm-readobj``/``llvm-readelf`` now supports ``--decompress``/``-z`` with
+  string and hex dump for ELF object files.
 
+* ``llvm-symbolizer`` and ``llvm-addr2line`` now support addresses specified as symbol names.
+
+* ``llvm-objcopy`` now supports ``--gap-fill`` and ``--pad-to`` options, for
+  ELF input and binary output files only.
+* ``llvm-objcopy`` now supports ``-O elf64-s390`` for SystemZ.
+
+* Supported parsing XCOFF auxiliary symbols in ``obj2yaml``.
+
+* ``llvm-ranlib`` now supports ``-X`` on AIX to specify the type of object file
+  ranlib should examine.
+
+* ``llvm-cxxfilt`` now supports ``--no-params``/``-p`` to skip function
+  parameters.
+
+* ``llvm-nm`` now supports ``--export-symbol`` to ignore the import symbol file.
 * ``llvm-nm`` now supports the ``--line-numbers`` (``-l``) option to use
   debugging information to print symbols' filenames and line numbers.
 
-* llvm-symbolizer and llvm-addr2line now support addresses specified as symbol names.
+* ``llvm-rc`` and ``llvm-windres`` now accept file path references in ``.rc`` files
+  concatenated from multiple string literals.
 
-* llvm-objcopy now supports ``--gap-fill`` and ``--pad-to`` options, for
-  ELF input and binary output files only.
+* The ``llvm-windres`` option ``--preprocessor`` now resolves its argument
+  in the ``PATH`` environment variable as expected, and options passed with
+  ``--preprocessor-arg`` are placed before the input file as they should
+  be.
+
+* The ``llvm-windres`` option ``--preprocessor`` has been updated with the
+  breaking behaviour change from GNU windres from binutils 2.36, where
+  the whole argument is considered as one path, not considered as a
+  sequence of tool name and parameters.
 
 Changes to LLDB
 ---------------------------------
@@ -314,9 +429,17 @@ Changes to LLDB
   fields are present, however this is not always possible or entirely
   accurate. If in doubt, refer to the numerical value.
 
+* On Windows, LLDB can now read the thread names.
+
 Changes to Sanitizers
 ---------------------
 * HWASan now defaults to detecting use-after-scope bugs.
+
+Changes to the Profile Runtime
+------------------------------
+
+* Public header ``profile/instr_prof_interface.h`` is added to declare four
+  API functions to fine tune profile collection.
 
 Other Changes
 -------------

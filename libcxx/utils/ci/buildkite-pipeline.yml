@@ -48,7 +48,6 @@ environment_definitions:
       CLANG_CRASH_DIAGNOSTICS_DIR: "crash_diagnostics"
       CC: clang-${LLVM_HEAD_VERSION}
       CXX: clang++-${LLVM_HEAD_VERSION}
-      CMAKE: /opt/bin/cmake
 
   _absolute_path_clang: &absolute_path_clang
     # Note modules require and absolute path for clang-scan-deps
@@ -224,6 +223,13 @@ steps:
       arch: aarch64
     <<: *common
 
+  - label: Armv7-M picolibc -fno-exceptions
+    command: libcxx/utils/ci/run-buildbot armv7m-picolibc-no-exceptions
+    agents:
+      queue: libcxx-builders-linaro-arm
+      arch: aarch64
+    <<: *common
+
 - group: AIX
   steps:
   - label: AIX (32-bit)
@@ -255,7 +261,6 @@ steps:
     env:
       CC: clang16
       CXX: clang++16
-      ENABLE_STD_MODULES: 'Off'
     agents:
       queue: libcxx-builders
       os: freebsd
