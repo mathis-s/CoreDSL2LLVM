@@ -515,6 +515,7 @@ struct RegisterNode : public PatternNode {
   int Offset;
   int Size;
   bool Sext;
+  bool VectorExtract = false; // TODO: set based on type of this register in other uses
 
   size_t RegIdx;
 
@@ -549,9 +550,17 @@ struct RegisterNode : public PatternNode {
 
     // Sub-Register Operands
     if (Size == 16 || Size == 8) {
-      std::string Str = std::string("(i32 (vector_extract PulpV") +
+      std::string Str;
+      if (VectorExtract) {
+        Str = std::string("(i32 (vector_extract PulpV") +
               ((Size == 16) ? "2" : "4") + ":$" + std::string(Name) + ", " +
               std::to_string((Size == 16) ? (Offset / 2) : (Offset)) + "))";
+      } else {
+        if (Offset == 0)
+          Str = "GPR:$" + std::string(Name);
+        else
+          Str = "(i32 (srl GPR:$" + std::string(Name) + " (i32 " + std::to_string(Offset * 8) + ")))"; 
+      }
       return Str;
     }
     abort();
@@ -776,7 +785,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     int ReadOffset = 0;
     int ReadSize;
 
-    MachineMemOperand* MMO = *Cur.memoperands_begin();
+    MachineMemOperand *MMO = *Cur.memoperands_begin();
     ReadSize = MMO->getSizeInBits();
 
     assert(Cur.getOperand(1).isReg() && "expected register");
@@ -945,7 +954,7 @@ generatePattern(MachineFunction &MF) {
     return std::make_pair(FORMAT_STORE, nullptr);
 
   auto &Store = *Instrs;
-  MachineMemOperand* MMO = *Store.memoperands_begin();
+  MachineMemOperand *MMO = *Store.memoperands_begin();
   if (MMO->getSizeInBits() != 32)
     return std::make_pair(FORMAT_STORE, nullptr);
 
