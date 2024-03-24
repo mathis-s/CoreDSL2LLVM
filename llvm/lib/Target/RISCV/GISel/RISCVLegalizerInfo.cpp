@@ -82,7 +82,7 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
                     nxv32s16, nxv1s32, nxv2s32, nxv4s32, nxv8s32, nxv16s32,
                     nxv1s64,  nxv2s64, nxv4s64, nxv8s64};
 
-  getActionDefinitionsBuilder({G_ADD, G_SUB, G_AND, G_OR, G_XOR})
+  auto ArithActions = getActionDefinitionsBuilder({G_ADD, G_SUB, G_AND, G_OR, G_XOR})
       .legalFor({s32, sXLen})
       .legalIf(all(
           typeInSet(0, AllVecTys),

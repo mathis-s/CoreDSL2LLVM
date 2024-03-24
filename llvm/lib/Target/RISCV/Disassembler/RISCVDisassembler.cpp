@@ -76,15 +76,16 @@ static DecodeStatus DecodeGPRRegisterClass(MCInst &Inst, uint32_t RegNo,
 
 // LLVMGEN: need to this to compile new reg classes
 static DecodeStatus DecodePulpV2RegisterClass(MCInst &Inst, uint64_t RegNo,
-                                               uint64_t Address,
-                                               const MCDisassembler *Decoder) {
+                                              uint64_t Address,
+                                              const MCDisassembler *Decoder) {
   return DecodeGPRRegisterClass(Inst, RegNo, Address, Decoder);
 }
 
 static DecodeStatus DecodePulpV4RegisterClass(MCInst &Inst, uint64_t RegNo,
-                                               uint64_t Address,
-                                               const MCDisassembler *Decoder) {
+                                              uint64_t Address,
+                                              const MCDisassembler *Decoder) {
   return DecodeGPRRegisterClass(Inst, RegNo, Address, Decoder);
+}
 static DecodeStatus DecodeGPRX1X5RegisterClass(MCInst &Inst, uint32_t RegNo,
                                                uint64_t Address,
                                                const MCDisassembler *Decoder) {
@@ -564,7 +565,8 @@ DecodeStatus RISCVDisassembler::getInstruction(MCInst &MI, uint64_t &Size,
     TRY_TO_DECODE_FEATURE(RISCV::FeatureStdExtZfinx, DecoderTableRVZfinx32,
                           "RVZfinx table (Float in Integer)");
     TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXVentanaCondOps,
-                          DecoderTableXVentana32, "Ventana custom opcode table");
+                          DecoderTableXVentana32,
+                          "Ventana custom opcode table");
     TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadBa, DecoderTableXTHeadBa32,
                           "XTHeadBa custom opcode table");
     TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadBb, DecoderTableXTHeadBb32,
@@ -574,12 +576,14 @@ DecodeStatus RISCVDisassembler::getInstruction(MCInst &MI, uint64_t &Size,
     TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadCondMov,
                           DecoderTableXTHeadCondMov32,
                           "XTHeadCondMov custom opcode table");
-    TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadCmo, DecoderTableXTHeadCmo32,
+    TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadCmo,
+                          DecoderTableXTHeadCmo32,
                           "XTHeadCmo custom opcode table");
     TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadFMemIdx,
                           DecoderTableXTHeadFMemIdx32,
                           "XTHeadFMemIdx custom opcode table");
-    TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadMac, DecoderTableXTHeadMac32,
+    TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadMac,
+                          DecoderTableXTHeadMac32,
                           "XTHeadMac custom opcode table");
     TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadMemIdx,
                           DecoderTableXTHeadMemIdx32,
@@ -590,7 +594,8 @@ DecodeStatus RISCVDisassembler::getInstruction(MCInst &MI, uint64_t &Size,
     TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadSync,
                           DecoderTableXTHeadSync32,
                           "XTHeadSync custom opcode table");
-    TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadVdot, DecoderTableXTHeadVdot32,
+    TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXTHeadVdot,
+                          DecoderTableXTHeadVdot32,
                           "XTHeadVdot custom opcode table");
     TRY_TO_DECODE_FEATURE(RISCV::FeatureVendorXSfvcp, DecoderTableXSfvcp32,
                           "SiFive VCIX custom opcode table");
