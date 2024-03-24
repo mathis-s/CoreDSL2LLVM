@@ -6,7 +6,6 @@ The alternative to using a file like this is modifying LLVM source
 more aggressively directly.
 */
 #include "../lib/Target/RISCV/RISCVISelDAGToDAG.h"
-#include "../lib/Target/RISCV/RISCVMacroFusion.h"
 #include "../lib/Target/RISCV/RISCVTargetMachine.h"
 #include "PatternGen.hpp"
 #include "llvm/Analysis/CGSCCPassManager.h"
@@ -103,8 +102,12 @@ addPassesToGenerateCode(LLVMTargetMachine &TM, PassManagerBase &PM,
 namespace {
 class RISCVPatternPassConfig : public TargetPassConfig {
 public:
-  RISCVPatternPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
-      : TargetPassConfig(TM, PM) {}
+    RISCVPatternPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
+      : TargetPassConfig(TM, PM) {
+    if (TM.getOptLevel() != CodeGenOptLevel::None)
+      substitutePass(&PostRASchedulerID, &PostMachineSchedulerID);
+    setEnableSinkAndFold(false);
+  }
 
   RISCVTargetMachine &getRISCVTargetMachine() const {
     return getTM<RISCVTargetMachine>();
@@ -113,20 +116,27 @@ public:
   ScheduleDAGInstrs *
   createMachineScheduler(MachineSchedContext *C) const override {
     const RISCVSubtarget &ST = C->MF->getSubtarget<RISCVSubtarget>();
-    if (ST.hasMacroFusion()) {
-      ScheduleDAGMILive *DAG = createGenericSchedLive(C);
-      DAG->addMutation(createRISCVMacroFusionDAGMutation());
-      return DAG;
+    ScheduleDAGMILive *DAG = nullptr;
+    if (false) {
+      DAG = createGenericSchedLive(C);
+      DAG->addMutation(createLoadClusterDAGMutation(
+          DAG->TII, DAG->TRI, /*ReorderWhileClustering=*/true));
     }
-    return nullptr;
+    const auto &MacroFusions = ST.getMacroFusions();
+    if (!MacroFusions.empty()) {
+      DAG = DAG ? DAG : createGenericSchedLive(C);
+      DAG->addMutation(createMacroFusionDAGMutation(MacroFusions));
+    }
+    return DAG;
   }
 
   ScheduleDAGInstrs *
   createPostMachineScheduler(MachineSchedContext *C) const override {
     const RISCVSubtarget &ST = C->MF->getSubtarget<RISCVSubtarget>();
-    if (ST.hasMacroFusion()) {
+    const auto &MacroFusions = ST.getMacroFusions();
+    if (!MacroFusions.empty()) {
       ScheduleDAGMI *DAG = createGenericSchedPostRA(C);
-      DAG->addMutation(createRISCVMacroFusionDAGMutation());
+      DAG->addMutation(createMacroFusionDAGMutation(MacroFusions));
       return DAG;
     }
     return nullptr;

@@ -94,14 +94,14 @@ static DecodeStatus DecodeGPRX1X5RegisterClass(MCInst &Inst, uint32_t RegNo,
 
 // LLVMGEN: need to this to compile new reg classes
 static DecodeStatus DecodePulpV2RegisterClass(MCInst &Inst, uint64_t RegNo,
-                                               uint64_t Address,
-                                               const MCDisassembler *Decoder) {
+                                              uint64_t Address,
+                                              const MCDisassembler *Decoder) {
   return DecodeGPRRegisterClass(Inst, RegNo, Address, Decoder);
 }
 
 static DecodeStatus DecodePulpV4RegisterClass(MCInst &Inst, uint64_t RegNo,
-                                               uint64_t Address,
-                                               const MCDisassembler *Decoder) {
+                                              uint64_t Address,
+                                              const MCDisassembler *Decoder) {
   return DecodeGPRRegisterClass(Inst, RegNo, Address, Decoder);
 }
 
