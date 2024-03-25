@@ -78,6 +78,9 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
   const LLT s32 = LLT::scalar(32);
   const LLT s64 = LLT::scalar(64);
   const LLT v4i8 = LLT::fixed_vector(4, LLT::scalar(8));
+  const LLT v2i16 = LLT::fixed_vector(2, LLT::scalar(16));
+
+  auto XCVVecTys = {v4i8, v2i16};
 
   const LLT nxv1s1 = LLT::scalable_vector(1, s1);
   const LLT nxv2s1 = LLT::scalable_vector(2, s1);
@@ -122,13 +125,17 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
                         nxv32s16, nxv1s32, nxv2s32, nxv4s32, nxv8s32, nxv16s32,
                         nxv1s64,  nxv2s64, nxv4s64, nxv8s64};
 
-  auto &ArithActions =
-      getActionDefinitionsBuilder({G_ADD, G_SUB, G_AND, G_OR, G_XOR})
-          .legalFor({s32, sXLen})
-          .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
-          .widenScalarToNextPow2(0)
-          .clampScalar(0, s32, sXLen);
-
+  getActionDefinitionsBuilder({G_ADD, G_SUB, G_AND, G_OR, G_XOR})
+      .legalFor({s32, sXLen})
+      .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
+      .legalIf(all(
+          typeInSet(0, XCVVecTys),
+          LegalityPredicate([=, &ST](const LegalityQuery &Query) {
+            return ST.hasVendorXCVsimd();
+          }
+      )))
+      .widenScalarToNextPow2(0)
+      .clampScalar(0, s32, sXLen);
 
   getActionDefinitionsBuilder({G_UADDE, G_UADDO, G_USUBE, G_USUBO}).lower();
 
@@ -276,19 +283,17 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
                                                {p0, p0, sXLen, 8}});
 
   if (ST.hasVendorXCvsimd()) {
-    LoadStoreActions.bitcastIf(LegalityPredicates::typeIs(0, v4i8),
+    LoadStoreActions.bitcastIf(LegalityPredicates::typeInSet(0, XCVVecTys),
                                LegalizeMutations::changeTo(0, LLT::scalar(32)));
 
     // allow bitcasting back and forth between vector and scalar
     getActionDefinitionsBuilder(G_BITCAST)
         .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(0, s32),
-                                         LegalityPredicates::typeIs(1, v4i8)))
+                                         LegalityPredicates::typeInSet(1, XCVVecTys)))
         .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(1, s32),
-                                         LegalityPredicates::typeIs(0, v4i8)));
+                                         LegalityPredicates::typeInSet(0, XCVVecTys)));
 
-    getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor({v4i8});
-
-    ArithActions.legalFor({v4i8});
+    getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor(XCVVecTys);
   }
 
   auto &ExtLoadActions =
