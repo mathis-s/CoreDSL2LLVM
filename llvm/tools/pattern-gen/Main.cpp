@@ -58,6 +58,8 @@ static cl::opt<std::string>
           // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
           cl::init("+m,+fast-unaligned-access"));
 
+static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"), cl::init(32));
+
 // Determine optimization level.
 static cl::opt<char>
     OptLevel("O",
@@ -116,7 +118,7 @@ int main(int argc, char **argv) {
   TokenStream ts(InputFilename.c_str());
   LLVMContext ctx;
   auto mod = std::make_unique<Module>("mod", ctx);
-  auto instrs = ParseCoreDSL2(ts, mod.get());
+  auto instrs = ParseCoreDSL2(ts, (XLen == 64), mod.get());
 
   if (!SkipVerify)
     if (verifyModule(*mod, &errs()))
@@ -145,7 +147,8 @@ int main(int argc, char **argv) {
 
   PGArgsStruct Args{.Mattr = Mattr,
                     .OptLevel = Opt,
-                    .Predicates = Predicates};
+                    .Predicates = Predicates,
+                    .is64Bit = (XLen == 64)};
 
   OptimizeBehavior(mod.get(), instrs, irOut, Args);
   if (PrintIR)

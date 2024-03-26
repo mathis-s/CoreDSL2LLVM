@@ -27,7 +27,7 @@
 
 int OptimizeBehavior(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
                      std::ostream &ostreamIR, PGArgsStruct args) {
-  return RunOptPipeline(M, args.Mattr, args.OptLevel, ostreamIR);
+  return RunOptPipeline(M, args.is64Bit, args.Mattr, args.OptLevel, ostreamIR);
 }
 
 int GeneratePatterns(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
@@ -38,7 +38,7 @@ int GeneratePatterns(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
   llvm::PatternGenArgs::Args = args;
   llvm::PatternGenArgs::Instrs = &instrs;
 
-  int rv = RunPatternGenPipeline(M, args.Mattr);
+  int rv = RunPatternGenPipeline(M, args.is64Bit, args.Mattr);
 
   llvm::PatternGenArgs::OutStream = nullptr;
   llvm::PatternGenArgs::Args = PGArgsStruct();
