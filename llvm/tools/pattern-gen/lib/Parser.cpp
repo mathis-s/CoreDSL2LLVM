@@ -15,6 +15,7 @@
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/AllocatorBase.h"
@@ -1244,8 +1245,9 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     auto ptrT = llvm::PointerType::get(ctx, 0);
     auto immT = regT;
 
-    llvm::SmallVector<llvm::Type*, 8> args;
+    llvm::SmallVector<llvm::Type*, 8> argTypes;
     llvm::SmallVector<llvm::StringRef, 8> argNames;
+    llvm::SmallVector<std::optional<uint64_t>, 8> argRanges;
     for (auto const& field : curInstr->fields)
     {
         if (!(field.type & CDSLInstr::NON_CONST))
@@ -1253,21 +1255,27 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
             assert(&field == &curInstr->fields.back());
             break;
         }
+        
+        llvm::Type* argT = ptrT;
+        std::optional<uint64_t> argRange = std::optional<uint64_t>();
 
-        if (field.type & CDSLInstr::IMM)
-            args.push_back(immT);
-        else
-            args.push_back(ptrT);
+        if (field.type & CDSLInstr::IMM) {
+            argT = immT;
+            argRange = (1ULL << field.len);
+        }
 
         if ((field.type & CDSLInstr::IMM) && (field.type & CDSLInstr::REG))
             error(("field " + std::string(field.ident) + " of " + instr.name +
                    " is both immediate and register ID")
                       .c_str(), ts);
-
+        
+        argTypes.push_back(argT);
         argNames.push_back(field.ident);
+        argRanges.push_back(argRange);
+        
     }
 
-    auto fType = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx), args, false);
+    auto fType = llvm::FunctionType::get(llvm::Type::getVoidTy(ctx), argTypes, false);
 
     pop_cur(ts, BehaviorKeyword);
     pop_cur(ts, Colon);
@@ -1278,7 +1286,7 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
 
     for (size_t i = 0; i < argNames.size(); i++)
         func->getArg(i)->setName(argNames[i]);
-
+    
     // For vectorization to work, we must assume that
     // the destination does not overlap with sources.
     // For simulators using this generated code, this means
@@ -1289,6 +1297,16 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
 
     entry = llvm::BasicBlock::Create(ctx, "", func);
     llvm::IRBuilder<> build(entry);
+
+    // Generate range assumes for immediates
+    for (size_t i = 0; i < argRanges.size(); i++)
+        if (argRanges[i].has_value())
+        {
+            auto *arg = func->getArg(i);
+            auto *maxC = llvm::ConstantInt::get(arg->getType(), argRanges[i].value());
+            auto *cond = build.CreateICmpULT(arg, maxC);
+            build.CreateIntrinsic(llvm::Type::getVoidTy(ctx), llvm::Intrinsic::assume, {cond});
+        }
 
     ParseStatement(ts, func, build);
     build.CreateRetVoid();
