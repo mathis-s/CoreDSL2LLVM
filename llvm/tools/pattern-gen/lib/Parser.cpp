@@ -16,6 +16,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Type.h"
+#include "llvm/Support/Alignment.h"
 #include "llvm/Support/AllocatorBase.h"
 #include "llvm/Support/TypeSize.h"
 #include <array>
@@ -63,6 +64,10 @@ static llvm::DenseMap<uint32_t, llvm::SmallVector<Variable>> variables;
 static int scopeDepth;
 static llvm::BasicBlock* entry;
 static CDSLInstr* curInstr;
+
+static int xlen;
+static llvm::Type* regT;
+
 static void reset_globals()
 {
     variables.clear();
@@ -157,8 +162,8 @@ void promote_lvalue(llvm::IRBuilder<>& build, Value& v)
 {
     if (!v.isLValue)
         return;
-    v.ll = build.CreateLoad(llvm::Type::getIntNTy(build.getContext(), v.bitWidth), v.ll,
-        v.ll->getName() + ".v");
+    v.ll = build.CreateAlignedLoad(llvm::Type::getIntNTy(build.getContext(), v.bitWidth), v.ll,
+        llvm::Align(v.bitWidth / 8), v.ll->getName() + ".v");
     v.isLValue = false;
 }
 
@@ -217,15 +222,15 @@ Value gen_subscript(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& bu
     for (auto& v : {&lower, &upper})
     {
         promote_lvalue(build, *v);
-        if (v->bitWidth != 32)
+        if (v->bitWidth != xlen)
         {
             v->isSigned = false;
-            v->bitWidth = 32;
+            v->bitWidth = xlen;
             fit_to_size(lower, build);
         }
     }
 
-    if (left.isLValue && (len == 8 || len == 16 || len == 32) && left.bitWidth == 32)
+    if (left.isLValue && (len == 8 || len == 16 || len == 32 || len == xlen) && left.bitWidth == xlen)
     {
         if (auto asConst = llvm::dyn_cast<llvm::ConstantInt>(lower.ll))
             if (asConst->getLimitedValue() % 8 != 0)
@@ -241,16 +246,16 @@ Value gen_subscript(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& bu
         left.bitWidth = len;
         left.isLValue = true;
     }
-    else if (left.bitWidth == 32 && (len == 8 || len == 16))
+    else if (left.bitWidth == xlen && (len == 8 || len == 16 || (len == 32 && xlen != 32)))
     {
         promote_lvalue(build, left);
 
-        auto ec = llvm::ElementCount::getFixed(32 / len);
+        auto ec = llvm::ElementCount::getFixed(xlen / len);
         left.ll = build.CreateBitCast(left.ll, llvm::VectorType::get(llvm::Type::getIntNTy(ctx, len), ec));
 
         upper.bitWidth = left.bitWidth;
         fit_to_size(upper, build);
-        auto* idx = build.CreateUDiv(upper.ll, llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), len));
+        auto* idx = build.CreateUDiv(upper.ll, llvm::ConstantInt::get(regT, len));
 
         left.ll = build.CreateExtractElement(left.ll, idx);
         left.bitWidth = len;
@@ -314,7 +319,7 @@ Value gen_assign(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build
     right.bitWidth = left.bitWidth;
     fit_to_size(right, build);
 
-    build.CreateStore(right.ll, left.ll);
+    build.CreateAlignedStore(right.ll, left.ll, llvm::Align(right.bitWidth / 8));
 
     return rightOriginal;
 }
@@ -611,9 +616,9 @@ Value gen_inc(bool isPost, TokenStream& ts, llvm::Function* func, llvm::IRBuilde
 
     check_lvalue(left, ts, build.GetInsertBlock());
 
-    auto pre = build.CreateLoad(llvm::Type::getIntNTy(ctx, left.bitWidth), left.ll);
+    auto pre = build.CreateAlignedLoad(llvm::Type::getIntNTy(ctx, left.bitWidth), left.ll, llvm::Align(left.bitWidth / 8));
     auto post = build.CreateAdd(pre, llvm::ConstantInt::get(pre->getType(), (op == Decrement) ? -1 : 1));
-    build.CreateStore(post, left.ll);
+    build.CreateAlignedStore(post, left.ll, llvm::Align(left.bitWidth / 8));
 
     return Value(isPost ? post : pre, left.isSigned);
 }
@@ -694,7 +699,7 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
 
             // rd is true to skip "if (rd != 0)" checks.
             if (t.ident.str == "rd")
-                return {llvm::ConstantInt::get(llvm::Type::getInt32Ty(ctx), 1)};
+                return {llvm::ConstantInt::get(regT, 1)};
 
             if (t.ident.str == "X")
             {
@@ -708,7 +713,7 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                     if (!(match->type & CDSLInstr::REG))
                         error((std::string(t.ident.str) + " is used as a register ID but not defined as such").c_str(), ts);
 
-                    return Value{func->getArg(match - curInstr->fields.begin()), 32,
+                    return Value{func->getArg(match - curInstr->fields.begin()), xlen,
                         (bool)(match->type & CDSLInstr::SIGNED_REG)};
                 }
                 error(("undefined register ID: " + std::string(ident.str)).c_str(), ts);
@@ -733,7 +738,7 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                     auto* arg = func->getArg(match - curInstr->fields.begin());
 
                     Value v = {arg, (bool)(match->type & CDSLInstr::SIGNED)};
-                    v.bitWidth = 32;
+                    v.bitWidth = xlen;
                     return v;
                 }
             }
@@ -1237,7 +1242,7 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
 {
     auto& ctx = mod->getContext();
     auto ptrT = llvm::PointerType::get(ctx, 0);
-    auto immT = llvm::Type::getInt32Ty(ctx);
+    auto immT = regT;
 
     llvm::SmallVector<llvm::Type*, 8> args;
     llvm::SmallVector<llvm::StringRef, 8> argNames;
@@ -1289,9 +1294,11 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     build.CreateRetVoid();
 }
 
-std::vector<CDSLInstr> ParseCoreDSL2(TokenStream& ts, llvm::Module* mod)
+std::vector<CDSLInstr> ParseCoreDSL2(TokenStream& ts, bool is64Bit, llvm::Module* mod)
 {
     std::vector<CDSLInstr> instrs;
+    xlen = is64Bit ? 64 : 32;
+    regT = llvm::Type::getIntNTy(mod->getContext(), xlen);
 
     while(ts.Peek().type != None)
     {
