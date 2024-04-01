@@ -8,6 +8,7 @@
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
@@ -150,6 +151,7 @@ static bool peek_is_type(TokenStream& ts)
     return peekT == UnsignedKeyword || peekT == SignedKeyword;
 }
 
+// ceil to pow2 greater equal 8
 static int ceil_to_pow2 (int n)
 {
     int bitWidth8 = (((n + 7) / 8) * 8);
@@ -163,8 +165,9 @@ void promote_lvalue(llvm::IRBuilder<>& build, Value& v)
 {
     if (!v.isLValue)
         return;
+    
     v.ll = build.CreateAlignedLoad(llvm::Type::getIntNTy(build.getContext(), v.bitWidth), v.ll,
-        llvm::Align(v.bitWidth / 8), v.ll->getName() + ".v");
+        llvm::Align(ceil_to_pow2(v.bitWidth) / 8), v.ll->getName() + ".v");
     v.isLValue = false;
 }
 
@@ -238,7 +241,7 @@ Value gen_subscript(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& bu
                 not_implemented(ts);
 
         auto offset = build.CreateUDiv(lower.ll, llvm::ConstantInt::get(lower.ll->getType(), len));
-        offset = build.CreateAnd(offset, llvm::ConstantInt::get(lower.ll->getType(), 3));
+        offset = build.CreateAnd(offset, llvm::ConstantInt::get(lower.ll->getType(), (xlen / 8) - 1));
 
         auto llptr = build.CreateGEP(llvm::Type::getIntNTy(ctx, len), left.ll,
                                      {offset});
@@ -320,7 +323,7 @@ Value gen_assign(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build
     right.bitWidth = left.bitWidth;
     fit_to_size(right, build);
 
-    build.CreateAlignedStore(right.ll, left.ll, llvm::Align(right.bitWidth / 8));
+    build.CreateAlignedStore(right.ll, left.ll, llvm::Align(ceil_to_pow2(right.bitWidth) / 8));
 
     return rightOriginal;
 }
@@ -617,9 +620,9 @@ Value gen_inc(bool isPost, TokenStream& ts, llvm::Function* func, llvm::IRBuilde
 
     check_lvalue(left, ts, build.GetInsertBlock());
 
-    auto pre = build.CreateAlignedLoad(llvm::Type::getIntNTy(ctx, left.bitWidth), left.ll, llvm::Align(left.bitWidth / 8));
+    auto pre = build.CreateAlignedLoad(llvm::Type::getIntNTy(ctx, left.bitWidth), left.ll, llvm::Align(ceil_to_pow2(left.bitWidth) / 8));
     auto post = build.CreateAdd(pre, llvm::ConstantInt::get(pre->getType(), (op == Decrement) ? -1 : 1));
-    build.CreateAlignedStore(post, left.ll, llvm::Align(left.bitWidth / 8));
+    build.CreateAlignedStore(post, left.ll, llvm::Align(ceil_to_pow2(left.bitWidth) / 8));
 
     return Value(isPost ? post : pre, left.isSigned);
 }
@@ -1244,10 +1247,10 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     auto& ctx = mod->getContext();
     auto ptrT = llvm::PointerType::get(ctx, 0);
     auto immT = regT;
-
     llvm::SmallVector<llvm::Type*, 8> argTypes;
     llvm::SmallVector<llvm::StringRef, 8> argNames;
-    llvm::SmallVector<std::optional<uint64_t>, 8> argRanges;
+    llvm::SmallVector<int, 8> argBitLens;
+
     for (auto const& field : curInstr->fields)
     {
         if (!(field.type & CDSLInstr::NON_CONST))
@@ -1257,11 +1260,11 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
         }
         
         llvm::Type* argT = ptrT;
-        std::optional<uint64_t> argRange = std::optional<uint64_t>();
+        int argBitLen = -1;
 
         if (field.type & CDSLInstr::IMM) {
             argT = immT;
-            argRange = (1ULL << field.len);
+            argBitLen = field.len;
         }
 
         if ((field.type & CDSLInstr::IMM) && (field.type & CDSLInstr::REG))
@@ -1271,7 +1274,7 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
         
         argTypes.push_back(argT);
         argNames.push_back(field.ident);
-        argRanges.push_back(argRange);
+        argBitLens.push_back(argBitLen);
         
     }
 
@@ -1299,12 +1302,13 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     llvm::IRBuilder<> build(entry);
 
     // Generate range assumes for immediates
-    for (size_t i = 0; i < argRanges.size(); i++)
-        if (argRanges[i].has_value())
+    for (size_t i = 0; i < argBitLens.size(); i++)
+        if (argBitLens[i] != -1)
         {
             auto *arg = func->getArg(i);
-            auto *maxC = llvm::ConstantInt::get(arg->getType(), argRanges[i].value());
-            auto *cond = build.CreateICmpULT(arg, maxC);
+            auto *maskC = llvm::ConstantInt::get(arg->getType(), (1ULL << argBitLens[i]) - 1);
+            
+            auto *cond = build.CreateICmpEQ(arg, build.CreateAnd(arg, maskC));
             build.CreateIntrinsic(llvm::Type::getVoidTy(ctx), llvm::Intrinsic::assume, {cond});
         }
 
