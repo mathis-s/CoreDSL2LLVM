@@ -695,6 +695,7 @@ static auto find_var(uint32_t identIdx)
 Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build)
 {
     auto& ctx = func->getContext();
+    const auto memTypes = {"MEM8", "MEM16", "MEM32", "MEM64"};
     switch (ts.Peek().type)
     {
         case Identifier:
@@ -704,7 +705,18 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
             // rd is true to skip "if (rd != 0)" checks.
             if (t.ident.str == "rd")
                 return {llvm::ConstantInt::get(regT, 1)};
+            
+            auto *memIt = llvm::find(memTypes, t.ident.str);
+            if (memIt != memTypes.end())
+            {
+                pop_cur(ts, ABrOpen);
+                auto addr = ParseExpression(ts, func, build);
+                pop_cur(ts, ABrClose);
+                promote_lvalue(build, addr);
+                auto *addrPtr = build.CreateIntToPtr(addr.ll, llvm::PointerType::get(ctx, 0));
 
+                return Value{addrPtr, 8 << (memIt - memTypes.begin()), false};
+            }
             if (t.ident.str == "X")
             {
                 pop_cur(ts, ABrOpen);
@@ -721,15 +733,6 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                         (bool)(match->type & CDSLInstr::SIGNED_REG)};
                 }
                 error(("undefined register ID: " + std::string(ident.str)).c_str(), ts);
-            }
-            else if (t.ident.str == "MEM")
-            {
-                pop_cur(ts, ABrOpen);
-                auto addr = ParseExpression(ts, func, build);
-                pop_cur(ts, ABrClose);
-                auto *addrPtr = build.CreateIntToPtr(addr.ll, llvm::PointerType::get(ctx, 0));
-
-                return Value{addrPtr, -1, false};
             }
             else
             {
