@@ -2,6 +2,7 @@
 #include "../lib/Target/RISCV/RISCVISelLowering.h"
 #include "LLVMOverride.hpp"
 #include "lib/InstrInfo.hpp"
+#include "llvm/CodeGen/GlobalISel/PatternGen.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGNodes.h"
@@ -11,7 +12,6 @@
 #include "llvm/Support/Errc.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/CodeGen/GlobalISel/PatternGen.h"
 #include <array>
 #include <exception>
 #include <fstream>
@@ -38,7 +38,13 @@ int GeneratePatterns(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
   llvm::PatternGenArgs::Args = args;
   llvm::PatternGenArgs::Instrs = &instrs;
 
+  if (!args.Predicates.empty())
+    ostream << "let Predicates = [" << args.Predicates << "] in {\n\n";
+
   int rv = RunPatternGenPipeline(M, args.is64Bit, args.Mattr);
+
+  if (!args.Predicates.empty())
+    ostream << "}\n";
 
   llvm::PatternGenArgs::OutStream = nullptr;
   llvm::PatternGenArgs::Args = PGArgsStruct();

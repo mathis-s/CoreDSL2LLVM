@@ -79,6 +79,8 @@ struct PatternArg {
 
 static CDSLInstr const *CurInstr = nullptr;
 static SmallVector<PatternArg, 8> PatternArgs;
+static bool MayLoad = 0;
+static bool MayStore = 0;
 
 static uint64_t XLen;
 static std::string RegT;
@@ -1057,12 +1059,10 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   auto &OutStream = *PatternGenArgs::OutStream;
 
-  OutStream << "let ";
-  if (!PatternGenArgs::Args.Predicates.empty()) {
-    OutStream << "Predicates = [" << PatternGenArgs::Args.Predicates << "], ";
-  }
-  OutStream << "hasSideEffects = 0, mayLoad = 0, mayStore = 0, "
-               "isCodeGenOnly = 1";
+  OutStream << "let hasSideEffects = 0, mayLoad = " + std::to_string((int)MayLoad) +
+                   ", mayStore = " + std::to_string((int)MayStore) +
+                   ", "
+                   "isCodeGenOnly = 1";
 
   OutStream << ", Constraints = \"";
   {
