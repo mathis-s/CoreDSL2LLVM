@@ -237,8 +237,8 @@ Value gen_subscript(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& bu
     if (left.isLValue && (len == 8 || len == 16 || len == 32 || len == xlen) && left.bitWidth == xlen)
     {
         if (auto asConst = llvm::dyn_cast<llvm::ConstantInt>(lower.ll))
-            if (asConst->getLimitedValue() % 8 != 0)
-                not_implemented(ts);
+            if (asConst->getLimitedValue() % len != 0)
+                error("unaligned register slice as lvalue", ts);
 
         auto offset = build.CreateUDiv(lower.ll, llvm::ConstantInt::get(lower.ll->getType(), len));
         offset = build.CreateAnd(offset, llvm::ConstantInt::get(lower.ll->getType(), (xlen / 8) - 1));
