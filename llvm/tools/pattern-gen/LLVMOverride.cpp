@@ -193,7 +193,8 @@ bool RISCVPatternPassConfig::addPreISel() {
   return false;
 }
 
-FunctionPass *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
+// FunctionPass *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
+SelectionDAGISel *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
                                          CodeGenOptLevel OptLevel) {
   return new RISCVDAGToPatterns(TM, OptLevel);
 }
