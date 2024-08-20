@@ -39,32 +39,32 @@ Missing in map: G_SHUFFLE_VECTOR (?)
 >def : GINodeEquiv<G_ADD, add>;
 >def : GINodeEquiv<G_SUB, sub>;
 >def : GINodeEquiv<G_MUL, mul>;
-!def : GINodeEquiv<G_UMULH, mulhu>;
-!def : GINodeEquiv<G_SMULH, mulhs>;
+>def : GINodeEquiv<G_UMULH, mulhu>;
+>def : GINodeEquiv<G_SMULH, mulhs>;
 >def : GINodeEquiv<G_SDIV, sdiv>;
-!def : GINodeEquiv<G_UDIV, udiv>;
-!def : GINodeEquiv<G_SREM, srem>;
-!def : GINodeEquiv<G_UREM, urem>;
+>def : GINodeEquiv<G_UDIV, udiv>;
+>def : GINodeEquiv<G_SREM, srem>;
+>def : GINodeEquiv<G_UREM, urem>;
 >def : GINodeEquiv<G_AND, and>;
 >def : GINodeEquiv<G_OR, or>;
 >def : GINodeEquiv<G_XOR, xor>;
 >def : GINodeEquiv<G_SHL, shl>;
 >def : GINodeEquiv<G_LSHR, srl>;
 >def : GINodeEquiv<G_ASHR, sra>;
-!def : GINodeEquiv<G_SADDSAT, saddsat>;
-!def : GINodeEquiv<G_UADDSAT, uaddsat>;
-!def : GINodeEquiv<G_SSUBSAT, ssubsat>;
-!def : GINodeEquiv<G_USUBSAT, usubsat>;
-!def : GINodeEquiv<G_SSHLSAT, sshlsat>;
-!def : GINodeEquiv<G_USHLSAT, ushlsat>;
-!def : GINodeEquiv<G_SMULFIX, smulfix>;
-!def : GINodeEquiv<G_UMULFIX, umulfix>;
-!def : GINodeEquiv<G_SMULFIXSAT, smulfixsat>;
-!def : GINodeEquiv<G_UMULFIXSAT, umulfixsat>;
-!def : GINodeEquiv<G_SDIVFIX, sdivfix>;
-!def : GINodeEquiv<G_UDIVFIX, udivfix>;
-!def : GINodeEquiv<G_SDIVFIXSAT, sdivfixsat>;
-!def : GINodeEquiv<G_UDIVFIXSAT, udivfixsat>;
+>def : GINodeEquiv<G_SADDSAT, saddsat>;
+>def : GINodeEquiv<G_UADDSAT, uaddsat>;
+>def : GINodeEquiv<G_SSUBSAT, ssubsat>;
+>def : GINodeEquiv<G_USUBSAT, usubsat>;
+>def : GINodeEquiv<G_SSHLSAT, sshlsat>;
+>def : GINodeEquiv<G_USHLSAT, ushlsat>;
+>def : GINodeEquiv<G_SMULFIX, smulfix>;
+>def : GINodeEquiv<G_UMULFIX, umulfix>;
+>def : GINodeEquiv<G_SMULFIXSAT, smulfixsat>;
+>def : GINodeEquiv<G_UMULFIXSAT, umulfixsat>;
+>def : GINodeEquiv<G_SDIVFIX, sdivfix>;
+>def : GINodeEquiv<G_UDIVFIX, udivfix>;
+>def : GINodeEquiv<G_SDIVFIXSAT, sdivfixsat>;
+>def : GINodeEquiv<G_UDIVFIXSAT, udivfixsat>;
 >def : GINodeEquiv<G_SELECT, select>;
 ?def : GINodeEquiv<G_SELECT, vselect>;
 %def : GINodeEquiv<G_FNEG, fneg>;
@@ -99,15 +99,15 @@ Missing in map: G_SHUFFLE_VECTOR (?)
 #def : GINodeEquiv<G_INTRINSIC_W_SIDE_EFFECTS, intrinsic_w_chain>;
 ?def : GINodeEquiv<G_BR, br>;
 ?def : GINodeEquiv<G_BRCOND, brcond>;
-!def : GINodeEquiv<G_BSWAP, bswap>;
-!def : GINodeEquiv<G_BITREVERSE, bitreverse>;
-!def : GINodeEquiv<G_FSHL, fshl>;
-!def : GINodeEquiv<G_FSHR, fshr>;
-!def : GINodeEquiv<G_CTLZ, ctlz>;
-!def : GINodeEquiv<G_CTTZ, cttz>;
-?def : GINodeEquiv<G_CTLZ_ZERO_UNDEF, ctlz_zero_undef>;
-?def : GINodeEquiv<G_CTTZ_ZERO_UNDEF, cttz_zero_undef>;
-!def : GINodeEquiv<G_CTPOP, ctpop>;
+>def : GINodeEquiv<G_BSWAP, bswap>;
+>def : GINodeEquiv<G_BITREVERSE, bitreverse>;
+>def : GINodeEquiv<G_FSHL, fshl>;
+>def : GINodeEquiv<G_FSHR, fshr>;
+>def : GINodeEquiv<G_CTLZ, ctlz>;
+>def : GINodeEquiv<G_CTTZ, cttz>;
+>def : GINodeEquiv<G_CTLZ_ZERO_UNDEF, ctlz_zero_undef>;
+>def : GINodeEquiv<G_CTTZ_ZERO_UNDEF, cttz_zero_undef>;
+>def : GINodeEquiv<G_CTPOP, ctpop>;
 >def : GINodeEquiv<G_EXTRACT_VECTOR_ELT, extractelt>;
 >def : GINodeEquiv<G_INSERT_VECTOR_ELT, vector_insert>;
 ?def : GINodeEquiv<G_CONCAT_VECTORS, concat_vectors>;
@@ -146,8 +146,8 @@ Missing in map: G_SHUFFLE_VECTOR (?)
 %def : GINodeEquiv<G_FMINIMUM, fminimum>;
 #def : GINodeEquiv<G_READCYCLECOUNTER, readcyclecounter>;
 #def : GINodeEquiv<G_READSTEADYCOUNTER, readsteadycounter>;
-!def : GINodeEquiv<G_ROTR, rotr>;
-!def : GINodeEquiv<G_ROTL, rotl>;
+>def : GINodeEquiv<G_ROTR, rotr>;
+>def : GINodeEquiv<G_ROTL, rotl>;
 ?def : GINodeEquiv<G_LROUND, lround>;
 ?def : GINodeEquiv<G_LLROUND, llround>;
 %def : GINodeEquiv<G_VECREDUCE_FADD, vecreduce_fadd>;
@@ -503,12 +503,14 @@ struct TernopNode : public PatternNode {
         Second(std::move(Second)), Third(std::move(Third)) {}
 
   std::string patternString(int Indent = 0) override {
-    static const std::unordered_map<int, std::string> BinopStr = {
+    static const std::unordered_map<int, std::string> TernopStr = {
+        {TargetOpcode::G_FSHL, "fshl"},
+        {TargetOpcode::G_FSHR, "fshr"},
         {TargetOpcode::G_INSERT_VECTOR_ELT, "vector_insert"},
         {TargetOpcode::G_SELECT, "select"}};
 
     std::string TypeStr = lltToString(Type);
-    std::string OpString = "(" + std::string(BinopStr.at(Op)) + " " +
+    std::string OpString = "(" + std::string(TernopStr.at(Op)) + " " +
                            First->patternString(Indent + 1) + ", " +
                            Second->patternString(Indent + 1) + ", " +
                            Third->patternString(Indent + 1) + ")";
@@ -549,7 +551,26 @@ struct BinopNode : public PatternNode {
         {TargetOpcode::G_ADD, "add"},
         {TargetOpcode::G_SUB, "sub"},
         {TargetOpcode::G_MUL, "mul"},
-        {TargetOpcode::G_SDIV, "div"},
+        {TargetOpcode::G_UMULH, "mulhu"},
+        {TargetOpcode::G_SMULH, "mulhs"},
+        {TargetOpcode::G_UDIV, "udiv"},
+        {TargetOpcode::G_SREM, "srem"},
+        {TargetOpcode::G_UREM, "urem"},
+        {TargetOpcode::G_SDIV, "sdiv"},
+        {TargetOpcode::G_SADDSAT, "saddsat"},
+        {TargetOpcode::G_UADDSAT, "uaddsat"},
+        {TargetOpcode::G_SSUBSAT, "ssubsat"},
+        {TargetOpcode::G_USUBSAT, "usubsat"},
+        {TargetOpcode::G_SSHLSAT, "sshlsat"},
+        {TargetOpcode::G_USHLSAT, "ushlsat"},
+        {TargetOpcode::G_SMULFIX, "smulfix"},
+        {TargetOpcode::G_UMULFIX, "umulfix"},
+        {TargetOpcode::G_SMULFIXSAT, "smulfixsat"},
+        {TargetOpcode::G_UMULFIXSAT, "umulfixsat"},
+        {TargetOpcode::G_SDIVFIX, "sdivfix"},
+        {TargetOpcode::G_UDIVFIX, "udivfix"},
+        {TargetOpcode::G_SDIVFIXSAT, "sdivfixsat"},
+        {TargetOpcode::G_UDIVFIXSAT, "udivfixsat"},
         {TargetOpcode::G_AND, "and"},
         {TargetOpcode::G_OR, "or"},
         {TargetOpcode::G_XOR, "xor"},
@@ -560,6 +581,8 @@ struct BinopNode : public PatternNode {
         {TargetOpcode::G_UMAX, "umax"},
         {TargetOpcode::G_SMIN, "smin"},
         {TargetOpcode::G_UMIN, "umin"},
+        {TargetOpcode::G_ROTR, "rotr"},
+        {TargetOpcode::G_ROTL, "rotl"},
         {TargetOpcode::G_EXTRACT_VECTOR_ELT, "vector_extract"}};
 
     std::string TypeStr = lltToString(Type);
@@ -673,7 +696,14 @@ struct UnopNode : public PatternNode {
         {TargetOpcode::G_ZEXT, "zext"},
         {TargetOpcode::G_VECREDUCE_ADD, "vecreduce_add"},
         {TargetOpcode::G_TRUNC, "trunc"},
+        {TargetOpcode::G_BSWAP, "bswap"},
+        {TargetOpcode::G_BITREVERSE, "bitreverse"},
         {TargetOpcode::G_BITCAST, "bitcast"},
+        {TargetOpcode::G_CTLZ, "ctlz"},
+        {TargetOpcode::G_CTTZ, "cttz"},
+        {TargetOpcode::G_CTLZ_ZERO_UNDEF, "ctlz_zero_undef"},
+        {TargetOpcode::G_CTTZ_ZERO_UNDEF, "cttz_zero_undef"},
+        {TargetOpcode::G_CTPOP, "ctpop"},
         {TargetOpcode::G_ABS, "abs"}};
 
     std::string TypeStr = lltToString(Type);
@@ -935,10 +965,26 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_ADD:
   case TargetOpcode::G_SUB:
   case TargetOpcode::G_MUL:
+  case TargetOpcode::G_UMULH:
+  case TargetOpcode::G_SMULH:
   case TargetOpcode::G_SDIV:
   case TargetOpcode::G_UDIV:
   case TargetOpcode::G_SREM:
   case TargetOpcode::G_UREM:
+  case TargetOpcode::G_SADDSAT:
+  case TargetOpcode::G_UADDSAT:
+  case TargetOpcode::G_SSUBSAT:
+  case TargetOpcode::G_USUBSAT:
+  case TargetOpcode::G_SSHLSAT:
+  case TargetOpcode::G_USHLSAT:
+  case TargetOpcode::G_SMULFIX:
+  case TargetOpcode::G_UMULFIX:
+  case TargetOpcode::G_SMULFIXSAT:
+  case TargetOpcode::G_UMULFIXSAT:
+  case TargetOpcode::G_SDIVFIX:
+  case TargetOpcode::G_UDIVFIX:
+  case TargetOpcode::G_SDIVFIXSAT:
+  case TargetOpcode::G_UDIVFIXSAT:
   case TargetOpcode::G_AND:
   case TargetOpcode::G_OR:
   case TargetOpcode::G_XOR:
@@ -947,6 +993,8 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_SMIN:
   case TargetOpcode::G_UMIN:
   case TargetOpcode::G_EXTRACT_VECTOR_ELT:
+  case TargetOpcode::G_ROTR:
+  case TargetOpcode::G_ROTL:
   case TargetOpcode::G_SHL:
   case TargetOpcode::G_LSHR:
   case TargetOpcode::G_ASHR: {
@@ -967,6 +1015,13 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_ZEXT:
   case TargetOpcode::G_VECREDUCE_ADD:
   case TargetOpcode::G_TRUNC:
+  case TargetOpcode::G_BSWAP:
+  case TargetOpcode::G_BITREVERSE:
+  case TargetOpcode::G_CTLZ:
+  case TargetOpcode::G_CTTZ:
+  case TargetOpcode::G_CTLZ_ZERO_UNDEF:
+  case TargetOpcode::G_CTTZ_ZERO_UNDEF:
+  case TargetOpcode::G_CTPOP:
   case TargetOpcode::G_ABS: {
 
     auto [Err, NodeR] = traverseUnopOperands(MRI, Cur);
@@ -1109,6 +1164,8 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
+  case TargetOpcode::G_FSHL:
+  case TargetOpcode::G_FSHR:
   case TargetOpcode::G_SELECT:
   case TargetOpcode::G_INSERT_VECTOR_ELT: {
     auto [Err, NodeFirst, NodeSecond, NodeThird] =
