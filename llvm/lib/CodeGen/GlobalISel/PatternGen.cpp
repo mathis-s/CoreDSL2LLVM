@@ -234,14 +234,46 @@ Missing in map: G_SHUFFLE_VECTOR (?)
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/Utils/PredicateInfo.h"
+#include "llvm/ADT/Statistic.h"
 #include <memory>
 #include <sstream>
 #include <string>
 #include <utility>
 
-#define DEBUG_TYPE "instruction-select"
+#define DEBUG_TYPE "pattern-gen"
 
 using namespace llvm;
+
+STATISTIC(
+    PatternGenNumInstructionsProcessed,
+    "Processed instructions");
+STATISTIC(
+    PatternGenNumInstructionsFailing,
+    "Failing instructions");
+STATISTIC(
+    PatternGenNumPatternsGenerated,
+    "Generated patterns");
+STATISTIC(
+    PatternGenNumPatternsFailing,
+    "Failing patterns");
+STATISTIC(
+    PatternGenNumErrorMultipleBlocks,
+    "Errors of type: MULTIPLE_BLOCKS");
+STATISTIC(
+    PatternGenNumErrorFormatReturn,
+    "Errors of type: FORMAT_RETURN");
+STATISTIC(
+    PatternGenNumErrorFormatStore,
+    "Errors of type: FORMAT_STORE");
+STATISTIC(
+    PatternGenNumErrorFormatLoad,
+    "Errors of type: FORMAT_LOAD");
+STATISTIC(
+    PatternGenNumErrorFormatImm,
+    "Errors of type: FORMAT_IMM");
+STATISTIC(
+    PatternGenNumErrorFormat,
+    "Errors of type: FORMAT");
 
 #ifdef LLVM_GISEL_COV_PREFIX
 static cl::opt<std::string>
@@ -332,6 +364,14 @@ struct PatternError {
 std::string Errors[] = {"success",        "multiple blocks", "expected return",
                         "expected store", "load format",     "immediate format",
                         "format"};
+llvm::Statistic* ErrorStats[] = {
+  &PatternGenNumErrorMultipleBlocks,
+  &PatternGenNumErrorFormatReturn,
+  &PatternGenNumErrorFormatStore,
+  &PatternGenNumErrorFormatLoad,
+  &PatternGenNumErrorFormatImm,
+  &PatternGenNumErrorFormat,
+};
 
 static const std::unordered_map<unsigned, std::string> CmpStr = {
     {CmpInst::Predicate::ICMP_EQ, "SETEQ"},
@@ -1272,6 +1312,7 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   std::string InstName = MF.getName().str().substr(4);
   std::string InstNameO = InstName;
+  ++PatternGenNumInstructionsProcessed;
   {
     auto It = std::find_if(
         PatternGenArgs::Instrs->begin(), PatternGenArgs::Instrs->end(),
@@ -1290,15 +1331,19 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   if (Err) {
     llvm::errs() << "Pattern Generation failed for " << MF.getName() << ": "
                  << Errors[Err.Type] << '\n';
+    ++(*ErrorStats[Err.Type]);
     if (Err.Inst) {
       llvm::errs() << "Match failure occurred here:\n";
       llvm::errs() << *Err.Inst << "\n";
     }
+    ++PatternGenNumInstructionsFailing;
+    ++PatternGenNumPatternsFailing;
     return true;
   }
 
   llvm::outs() << "Pattern for " << InstName << ": " << Node->patternString()
                << '\n';
+  ++PatternGenNumPatternsGenerated;
 
   LLT OutType;
   std::string OutsString;

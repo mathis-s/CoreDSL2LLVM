@@ -21,6 +21,7 @@
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/AllocatorBase.h"
 #include "llvm/Support/TypeSize.h"
+#include "llvm/ADT/Statistic.h"
 #include <array>
 #include <cstdlib>
 #include <functional>
@@ -30,6 +31,15 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+
+#define DEBUG_TYPE "pattern-gen"
+
+STATISTIC(
+    PatternGenNumSetsParsed,
+    "Parsed instruction sets");
+STATISTIC(
+    PatternGenNumInstructionsParsed,
+    "Parsed instructions");
 
 using namespace std::placeholders;
 
@@ -1396,6 +1406,7 @@ std::vector<CDSLInstr> ParseCoreDSL2(TokenStream &ts, bool is64Bit,
     bool parseBoilerplate =
         ts.Peek().type == Identifier && ts.Peek().ident.str == "InstructionSet";
     if (parseBoilerplate) {
+      ++PatternGenNumSetsParsed;
       pop_cur(ts, Identifier);
       pop_cur(ts, Identifier);
       if (pop_cur_if(ts, ExtendsKeyword))
@@ -1413,6 +1424,7 @@ std::vector<CDSLInstr> ParseCoreDSL2(TokenStream &ts, bool is64Bit,
                    Value{llvm::ConstantInt::get(regT, xlen)});
       add_variable(ts, ts.GetIdentIdx("RFS"),
                    Value{llvm::ConstantInt::get(regT, 32)});
+      ++PatternGenNumInstructionsParsed;
 
       Token ident = pop_cur(ts, Identifier);
       pop_cur(ts, CBrOpen);
