@@ -23,6 +23,7 @@
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/ADT/Statistic.h"
 
 using namespace llvm;
 
@@ -177,5 +178,8 @@ int main(int argc, char **argv) {
   if (!SkipPat)
     if (generatePatterns(Mod.get(), Instrs, patternOut, Args))
       return -1;
+  // If statistics were requested, print them out now.
+  if (llvm::AreStatisticsEnabled())
+    llvm::PrintStatistics();
   return 0;
 }
