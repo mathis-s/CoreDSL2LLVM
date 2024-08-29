@@ -807,6 +807,9 @@ struct RegisterNode : public PatternNode {
         Offset(Offset), Size(Size), Sext(Sext), RegIdx(RegIdx) {}
 
   std::string patternString(int Indent = 0) override {
+    std::string TypeStr = lltToString(Type);
+    // bool PrintType = false;
+    bool PrintType = true;
 
     if (IsImm) {
       // Immediate Operands
@@ -817,20 +820,29 @@ struct RegisterNode : public PatternNode {
 
     // Full-Size Register Operands
     if ((uint64_t)Size == XLen) {
+      std::string Str;
       if (Type.isScalar() && Type.getSizeInBits() == XLen)
-        return "GPR:$" + std::string(Name);
+        Str = "GPR:$" + std::string(Name);
+      if (PrintType)
+        return "(" + TypeStr + " " + Str + ")";
+      return Str;
+      abort();
     }
 
     // Vector Types (currently rv32 only)
     if ((uint64_t)Size == 32 && XLen == 32) {
+      std::string Str;
       if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
           Type.getElementType().isScalar() &&
           Type.getElementType().getSizeInBits() == 8)
-        return "GPR32V4:$" + std::string(Name);
+        Str = "GPR32V4:$" + std::string(Name);
       if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
           Type.getElementType().isScalar() &&
           Type.getElementType().getSizeInBits() == 16)
-        return "GPR32V2:$" + std::string(Name);
+        Str = "GPR32V2:$" + std::string(Name);
+      if (PrintType)
+        return "(" + TypeStr + " " + Str + ")";
+      return Str;
       abort();
     }
 
@@ -851,8 +863,11 @@ struct RegisterNode : public PatternNode {
           Str = ("(" + RegT + " ") + "(srl GPR:$" + std::string(Name) +
                 (" (" + RegT + " ") + std::to_string(Offset * 8) + ")))";
       }
+      if (PrintType)
+        return "(" + TypeStr + " " + Str + ")";
       return Str;
     }
+
     abort();
   }
 
