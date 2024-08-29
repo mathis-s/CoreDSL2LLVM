@@ -636,23 +636,32 @@ struct BinopNode : public PatternNode {
     bool RightImm = Right->IsImm;
     bool DoSwap = IsCommutable && LeftImm && !RightImm;
     std::string TypeStr = lltToString(Type);
-    std::string OpString = "(" + std::string(BinopStr.at(Op)) + " " +
-                           (DoSwap ? Right : Left)->patternString(Indent + 1) + ", " +
-                           (DoSwap ? Left : Right)->patternString(Indent + 1) + ")";
+    std::string LhsTypeStr = lltToString(Left->Type);
+    std::string RhsTypeStr = lltToString(Right->Type);
 
     // Explicitly specifying types for all ops increases pattern compile time
     // significantly, so we only do for ops where deduction fails otherwise.
     bool PrintType = false;
+    bool PrintSrcTypes = false;
     PrintType |= Type.getSizeInBits() != XLen;
     switch (Op) {
     case TargetOpcode::G_SHL:
     case TargetOpcode::G_LSHR:
     case TargetOpcode::G_ASHR:
       PrintType |= true;
+      PrintSrcTypes |= true;
       break;
     default:
       break;
     }
+    std::string LeftString = (DoSwap ? Right : Left)->patternString(Indent + 1);
+    std::string RightString = (DoSwap ? Left : Right)->patternString(Indent + 1);
+    if (PrintSrcTypes) {
+      LeftString = "(" + (DoSwap ? RhsTypeStr : LhsTypeStr) + " " + LeftString + ")";
+      RightString = "(" + (DoSwap ? LhsTypeStr : RhsTypeStr) + " " + RightString + ")";
+    }
+    std::string OpString = "(" + std::string(BinopStr.at(Op)) + " " +
+                           LeftString + ", " + RightString + ")";
 
     if (PrintType)
       return "(" + TypeStr + " " + OpString + ")";
@@ -818,8 +827,8 @@ struct RegisterNode : public PatternNode {
 
   std::string patternString(int Indent = 0) override {
     std::string TypeStr = lltToString(Type);
-    // bool PrintType = false;
-    bool PrintType = true;
+    bool PrintType = false;
+    // bool PrintType = true;
 
     if (IsImm) {
       // Immediate Operands
