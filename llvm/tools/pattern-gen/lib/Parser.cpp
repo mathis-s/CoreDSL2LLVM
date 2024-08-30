@@ -490,6 +490,10 @@ Value gen_binop(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build,
     {
         resultWidth = std::max(w1, w2);
     }
+    if (resultWidth > xlen)
+    {
+        warning("resultWidth > xlen", ts);
+    }
 
     if (!left.isSigned && !right.isSigned)
         switch (llop)
