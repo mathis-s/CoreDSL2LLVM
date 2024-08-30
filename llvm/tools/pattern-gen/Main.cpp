@@ -52,6 +52,8 @@ static cl::opt<bool> SkipVerify("skip-verify", cl::desc("Skip verification step.
                           cl::cat(ToolOptions));
 static cl::opt<bool> PrintIR("print-ir", cl::desc("Print LLVM-IR module."),
                           cl::cat(ToolOptions));
+static cl::opt<bool> NoExtend("no-extend", cl::desc("Do not apply CDSL typing rules (Use C-like type inference)."),
+                          cl::cat(ToolOptions));
 static cl::opt<std::string>
     Mattr("mattr2", cl::desc("Target specific attributes"),
           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
@@ -118,7 +120,7 @@ int main(int argc, char **argv) {
   TokenStream ts(InputFilename.c_str());
   LLVMContext ctx;
   auto mod = std::make_unique<Module>("mod", ctx);
-  auto instrs = ParseCoreDSL2(ts, (XLen == 64), mod.get());
+  auto instrs = ParseCoreDSL2(ts, (XLen == 64), mod.get(), NoExtend);
 
   if (irOut) {
     std::string Str;

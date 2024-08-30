@@ -68,6 +68,7 @@ static llvm::BasicBlock* entry;
 static CDSLInstr* curInstr;
 
 static int xlen;
+static bool NoExtend_;
 static llvm::Type* regT;
 
 static void reset_globals()
@@ -484,6 +485,10 @@ Value gen_binop(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build,
             }
             break;
         default: resultWidth = std::max(w1, w2);
+    }
+    if (NoExtend_)
+    {
+        resultWidth = std::max(w1, w2);
     }
 
     if (!left.isSigned && !right.isSigned)
@@ -1360,10 +1365,11 @@ void ParseBehaviour (TokenStream& ts, CDSLInstr& instr, llvm::Module* mod, Token
     build.CreateRetVoid();
 }
 
-std::vector<CDSLInstr> ParseCoreDSL2(TokenStream& ts, bool is64Bit, llvm::Module* mod)
+std::vector<CDSLInstr> ParseCoreDSL2(TokenStream& ts, bool is64Bit, llvm::Module* mod, bool NoExtend)
 {
     std::vector<CDSLInstr> instrs;
     xlen = is64Bit ? 64 : 32;
+    NoExtend_ = NoExtend;
     regT = llvm::Type::getIntNTy(mod->getContext(), xlen);
 
     while(ts.Peek().type != None)
