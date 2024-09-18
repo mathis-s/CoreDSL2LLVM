@@ -126,6 +126,14 @@ static void __attribute__((noreturn)) not_implemented(TokenStream& ts)
     error("not implemented", ts);
 }
 
+static void add_variable(TokenStream ts, int identIdx, Value v)
+{
+    if (!variables[identIdx].empty() && variables[identIdx].back().scope == scopeDepth)
+        error(("redefinition: " + std::string(ts.GetIdent(identIdx))).c_str(), ts);
+    
+    variables[identIdx].push_back(Variable{v, scopeDepth});
+}
+
 static Token pop_cur(TokenStream& ts, TokenType expected)
 {
     Token t = ts.Pop();
@@ -933,11 +941,7 @@ void ParseDeclaration (TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>&
     if (init.has_value())
         build.CreateStore(init->ll, v.ll, false);
 
-    if (!variables[identIdx].empty() && variables[identIdx].back().scope == scopeDepth)
-        error(("redefinition: " + std::string(ident)).c_str(), ts);
-
-    variables[identIdx].push_back((Variable){v, scopeDepth});
-
+    add_variable(ts, identIdx, v);
     pop_cur(ts, Semicolon);
 }
 
@@ -1342,6 +1346,13 @@ std::vector<CDSLInstr> ParseCoreDSL2(TokenStream& ts, bool is64Bit, llvm::Module
         while (ts.Peek().type != CBrClose && ts.Peek().type != None)
         {
             reset_globals();
+
+            // add XLEN and RFS as constants for now. 
+            add_variable(ts, ts.GetIdentIdx("XLEN"),
+                Value{llvm::ConstantInt::get(regT, xlen)});
+            add_variable(ts, ts.GetIdentIdx("RFS"),
+                Value{llvm::ConstantInt::get(regT, 32)});
+
             Token ident = pop_cur(ts, Identifier);
             pop_cur(ts, CBrOpen);
             CDSLInstr instr{.name = std::string(ident.ident.str)};
