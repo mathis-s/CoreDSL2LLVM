@@ -496,17 +496,22 @@ struct UnopNode : public PatternNode {
 };
 
 struct ConstantNode : public PatternNode {
-  uint32_t Constant;
-  ConstantNode(LLT Type, uint32_t c)
+  uint64_t Constant;
+  ConstantNode(LLT Type, uint64_t c)
       : PatternNode(PN_Constant, Type), Constant(c) {}
 
   std::string patternString(int Indent = 0) override {
+      std::string ConstantStr = (XLen == 64)
+                                    ? std::to_string((int64_t)Constant)
+                                    : std::to_string((int64_t)Constant);
     if (Type.isFixedVector()) {
+
+
       std::string TypeStr = lltToString(Type);
-      return "(" + TypeStr + " (" + RegT + " " + std::to_string((int)Constant) +
+      return "(" + TypeStr + " (" + RegT + " " + ConstantStr +
              "))";
     }
-    return "(" + RegT + " " + std::to_string((int)Constant) + ")";
+    return "(" + lltToString(Type) + " " + ConstantStr + ")";
   }
 
   static bool classof(const PatternNode *p) {
@@ -1059,7 +1064,8 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   auto &OutStream = *PatternGenArgs::OutStream;
 
-  OutStream << "let hasSideEffects = 0, mayLoad = " + std::to_string((int)MayLoad) +
+  OutStream << "let hasSideEffects = 0, mayLoad = " +
+                   std::to_string((int)MayLoad) +
                    ", mayStore = " + std::to_string((int)MayStore) +
                    ", "
                    "isCodeGenOnly = 1";
