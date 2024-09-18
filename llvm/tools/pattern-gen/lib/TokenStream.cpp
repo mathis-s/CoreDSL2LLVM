@@ -1,8 +1,10 @@
 #include "TokenStream.hpp"
 #include "Lexer.hpp"
+#include <cassert>
 #include <iostream>
 #include <fstream>
 #include <cerrno>
+#include <iterator>
 
 static int clog2 (uint64_t n)
 {
@@ -190,6 +192,23 @@ static std::string read_file_as_str (std::string path)
                         std::istreambuf_iterator<char>());
 
     return content;
+}
+
+unsigned TokenStream::GetIdentIdx(std::string_view ident)
+{
+    auto it = strings.find(ident);
+    if (it == strings.end())
+        return (strings[ident] = strings.size()) - NUM_KEYWORDS;
+    return it->second - NUM_KEYWORDS;
+}
+
+std::string_view TokenStream::GetIdent(unsigned identIdx)
+{
+    identIdx += NUM_KEYWORDS;
+    auto it = strings.begin();
+    std::advance(it, identIdx);
+    assert(it->second == identIdx);
+    return it->first;
 }
 
 TokenStream::TokenStream(std::string&& srcPath) : path(srcPath), src(read_file_as_str(srcPath)) {}

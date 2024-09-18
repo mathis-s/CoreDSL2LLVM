@@ -15,18 +15,18 @@ struct TokenStream
     std::optional<Token> peekToken;
     std::map<std::string_view, uint32_t> strings =
     { // initialize with keywords
-        std::make_pair("if", 0),
-        std::make_pair("else", 1),
-        std::make_pair("while", 2),
-        std::make_pair("for", 3),
-        std::make_pair("operands", 4),
-        std::make_pair("encoding", 5),
-        std::make_pair("assembly", 6),
-        std::make_pair("behavior", 7),
-        std::make_pair("extends", 8),
-        std::make_pair("instructions", 9),
-        std::make_pair("signed", 10),
-        std::make_pair("unsigned", 11),
+        std::make_pair("if",IfKeyword-TOK_KW_START),
+        std::make_pair("else",ElseKeyword-TOK_KW_START),
+        std::make_pair("while",WhileKeyword-TOK_KW_START),
+        std::make_pair("for",ForKeyword-TOK_KW_START),
+        std::make_pair("operands",OperandsKeyword-TOK_KW_START),
+        std::make_pair("encoding",EncodingKeyword-TOK_KW_START),
+        std::make_pair("assembly",AssemblyKeyword-TOK_KW_START),
+        std::make_pair("behavior",BehaviorKeyword-TOK_KW_START),
+        std::make_pair("extends",ExtendsKeyword-TOK_KW_START),
+        std::make_pair("instructions",InstructionsKeyword-TOK_KW_START),
+        std::make_pair("signed", SignedKeyword-TOK_KW_START),
+        std::make_pair("unsigned", UnsignedKeyword-TOK_KW_START),
     };
     const size_t NUM_KEYWORDS = strings.size();
 
@@ -34,4 +34,6 @@ struct TokenStream
     TokenStream (std::string&& srcPath);
     Token Pop();
     Token Peek();
+    unsigned GetIdentIdx(std::string_view ident);
+    std::string_view GetIdent(unsigned identIdx);
 };
