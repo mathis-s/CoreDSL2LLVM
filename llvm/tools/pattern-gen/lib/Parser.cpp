@@ -508,6 +508,41 @@ Value gen_binop(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build,
     return v;
 }
 
+Value gen_ternary_relaxed(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left,
+                    Value right)
+{
+    // In C, the ternary operator only evaluates either the true expr or the false expr, not both. Doing that has
+    // negative effects on pattern generation though, so we evaluate both and then select between results here.
+    // This assumes that evaluation of both has no side effects! Ideally we would select between this and gen_ternary
+    // depending on if expressions have side effects or not (particularly ++/--).
+    auto valTrue = ParseExpression(ts, func, build);
+    pop_cur(ts, Colon);
+    auto valFalse = ParseExpression(ts, func, build);
+
+    promote_lvalue(build, valTrue);
+    promote_lvalue(build, valFalse);
+
+    promote_lvalue(build, left);
+    auto cond = build.CreateICmpNE(left.ll, llvm::ConstantInt::get(left.ll->getType(), 0));
+
+    if (valTrue.ll->getType() != valFalse.ll->getType())
+    {
+        if (valTrue.bitWidth > valFalse.bitWidth)
+        {
+            valFalse.bitWidth = valTrue.bitWidth;
+            fit_to_size(valFalse, build);
+        }
+        else if (valTrue.bitWidth < valFalse.bitWidth)
+        {
+            valTrue.bitWidth = valFalse.bitWidth;
+            fit_to_size(valTrue, build);
+        }
+    }
+
+    auto result = build.CreateSelect(cond, valTrue.ll, valFalse.ll);
+    return Value{result, valTrue.isSigned || valFalse.isSigned};
+}
+
 Value gen_ternary(TokenStream& ts, llvm::Function* func, llvm::IRBuilder<>& build, TokenType op, Value left,
                     Value right)
 {
@@ -675,7 +710,7 @@ static const Operator precTable[] =
     [BitwiseXOR]           = Operator(9,  0, 0, gen_binop),
     [LogicalAND]           = Operator(12, 0, 1, gen_logical),
     [LogicalOR]            = Operator(13, 0, 1, gen_logical),
-    [Ternary]              = Operator(14, 1, 1, gen_ternary),
+    [Ternary]              = Operator(14, 1, 1, gen_ternary_relaxed),
     [BitwiseConcat]        = Operator(11, 0, 0, gen_concat),
     [Assignment]           = Operator(15, 1, 0, gen_assign),
     [AssignmentAdd]        = Operator(15, 1, 0, gen_binop),
