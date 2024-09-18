@@ -375,11 +375,12 @@ struct BinopNode : public PatternNode {
     // Explicitly specifying types for all ops increases pattern compile time
     // significantly, so we only do for ops where deduction fails otherwise.
     bool PrintType = false;
+    PrintType |= Type.getSizeInBits() != XLen;
     switch (Op) {
     case TargetOpcode::G_SHL:
     case TargetOpcode::G_LSHR:
     case TargetOpcode::G_ASHR:
-      PrintType = true;
+      PrintType |= true;
       break;
     default:
       break;
@@ -573,7 +574,10 @@ struct RegisterNode : public PatternNode {
               ((Size == 16) ? "2" : "4") + ":$" + std::string(Name) + ", " +
               std::to_string((Size == 16) ? (Offset / 2) : (Offset)) + "))";
       } else {
-        if (Offset == 0)
+        // 32-bit is a supported type, so we can cast instead of shift/mask
+        if (Offset == 0 && Size == 32)
+          Str = "(i32 GPR:$" + std::string(Name) + ")";
+        else if (Offset == 0)
           Str = "GPR:$" + std::string(Name);
         else
           Str = ("(" + RegT + " ") + "(srl GPR:$" + std::string(Name) +
@@ -975,7 +979,7 @@ generatePattern(MachineFunction &MF) {
 
   auto &Store = *Instrs;
   MachineMemOperand *MMO = *Store.memoperands_begin();
-  if (MMO->getSizeInBits() != XLen)
+  if (MMO->getSizeInBits() != XLen && MMO->getSizeInBits() != 32)
     return std::make_pair(FORMAT_STORE, nullptr);
 
   auto *Addr = MRI.getOneDef(Store.getOperand(1).getReg());

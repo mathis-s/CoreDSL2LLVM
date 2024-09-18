@@ -760,8 +760,9 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
 
                 return Value{addrPtr, 8 << (memIt - memTypes.begin()), false};
             }
-            if (t.ident.str == "X")
+            if (t.ident.str == "X" || t.ident.str == "XW")
             {
+                bool sizeIs32 = t.ident.str == "XW";
                 pop_cur(ts, ABrOpen);
                 auto ident = pop_cur(ts, Identifier).ident;
                 pop_cur(ts, ABrClose);
@@ -771,8 +772,8 @@ Value ParseExpressionTerminal(TokenStream& ts, llvm::Function* func, llvm::IRBui
                 {
                     if (!(match->type & CDSLInstr::REG))
                         error((std::string(t.ident.str) + " is used as a register ID but not defined as such").c_str(), ts);
-
-                    return Value{func->getArg(match - curInstr->fields.begin()), xlen,
+                    sizeIs32 |= (match->type & CDSLInstr::IS_32_BIT);
+                    return Value{func->getArg(match - curInstr->fields.begin()), sizeIs32 ? 32 : xlen,
                         (bool)(match->type & CDSLInstr::SIGNED_REG)};
                 }
                 error(("undefined register ID: " + std::string(ident.str)).c_str(), ts);
@@ -1107,6 +1108,7 @@ void ParseOperands(TokenStream& ts, CDSLInstr& instr)
             {"in", {FieldType::IN, 0}},
             {"out", {FieldType::OUT, 0}},
             {"inout", {(FieldType::IN|FieldType::OUT), 0}},
+            {"is_32_bit", {FieldType::IS_32_BIT, 0}}
         };
 
         uint acc = 0;
