@@ -504,7 +504,7 @@ struct ConstantNode : public PatternNode {
   std::string patternString(int Indent = 0) override {
       std::string ConstantStr = (XLen == 64)
                                     ? std::to_string((int64_t)Constant)
-                                    : std::to_string((int64_t)Constant);
+                                    : std::to_string((int32_t)Constant);
     if (Type.isFixedVector()) {
 
 
