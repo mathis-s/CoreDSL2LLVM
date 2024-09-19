@@ -2,6 +2,8 @@
 This repo implements an LLVM-based tool for automatic generation of Instruction Selection Patterns for GlobalISel.
 Patterns are generated from CoreDSL2 descriptions of instruction behavior.
 
+The original version of this tool (targeting LLVM ISelDAG) was written for my [Bachelor's Thesis at TUM](https://github.com/user-attachments/files/17065465/Thesis_CoreDSL2LLVM.pdf).
+
 ## Build Process
 Everything is tied into the [LLVM build system](https://llvm.org/docs/CMake.html). Generally:
 
