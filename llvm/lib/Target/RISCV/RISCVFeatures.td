@@ -37,7 +37,7 @@ class RISCVExtension<string name, int major, int minor, string desc,
   bit Experimental = false;
 }
 
-// The groupID/bitmask of RISCVExtension is used to retrieve a specific bit value 
+// The groupID/bitmask of RISCVExtension is used to retrieve a specific bit value
 // from __riscv_feature_bits based on the groupID and bitmask.
 // groupID - groupID of extension
 // bitPos  - bit position of extension bitmask
@@ -1315,11 +1315,6 @@ def FeatureUnalignedScalarMem
 def FeatureUnalignedVectorMem
    : SubtargetFeature<"unaligned-vector-mem", "EnableUnalignedVectorMem",
                       "true", "Has reasonably performant unaligned vector "
-                      "loads and stores">;
-
-def FeatureUnalignedScalarMem
-   : SubtargetFeature<"unaligned-scalar-mem", "EnableUnalignedScalarMem",
-                      "true", "Has reasonably performant unaligned scalar "
                       "loads and stores">;
 
 def FeaturePostRAScheduler : SubtargetFeature<"use-postra-scheduler",

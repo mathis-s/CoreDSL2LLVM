@@ -90,6 +90,14 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
   const LLT nxv32s1 = LLT::scalable_vector(32, s1);
   const LLT nxv64s1 = LLT::scalable_vector(64, s1);
 
+  const LLT nxv1s1 = LLT::scalable_vector(1, s1);
+  const LLT nxv2s1 = LLT::scalable_vector(2, s1);
+  const LLT nxv4s1 = LLT::scalable_vector(4, s1);
+  const LLT nxv8s1 = LLT::scalable_vector(8, s1);
+  const LLT nxv16s1 = LLT::scalable_vector(16, s1);
+  const LLT nxv32s1 = LLT::scalable_vector(32, s1);
+  const LLT nxv64s1 = LLT::scalable_vector(64, s1);
+
   const LLT nxv1s8 = LLT::scalable_vector(1, s8);
   const LLT nxv2s8 = LLT::scalable_vector(2, s8);
   const LLT nxv4s8 = LLT::scalable_vector(4, s8);
