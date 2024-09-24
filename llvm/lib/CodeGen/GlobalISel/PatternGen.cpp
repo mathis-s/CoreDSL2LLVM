@@ -68,7 +68,7 @@ PGArgsStruct PatternGenArgs::Args;
 
 struct PatternArg {
   std::string ArgTypeStr;
-  LLT LLT;
+  LLT Llt;
   // We also have in and out bits in the CDSLInstr struct itself.
   // These bits are currently ignored though. Instead, we find inputs
   // and outputs during pattern gen and store that in these fields.
@@ -841,8 +841,8 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     if (Field == nullptr)
       return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
 
-    PatternArgs[Idx].LLT = MRI.getType(Cur.getOperand(0).getReg());
-    PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(PatternArgs[Idx].LLT);
+    PatternArgs[Idx].Llt = MRI.getType(Cur.getOperand(0).getReg());
+    PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(PatternArgs[Idx].Llt);
     PatternArgs[Idx].In = true;
 
     assert(Cur.getOperand(0).isReg() && "expected register");
@@ -884,7 +884,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     auto [Idx, Field] = getArgInfo(MRI, Reg);
 
     PatternArgs[Idx].In = true;
-    PatternArgs[Idx].LLT = LLT();
+    PatternArgs[Idx].Llt = LLT();
     PatternArgs[Idx].ArgTypeStr =
         makeImmTypeStr(Field->len, Field->type & CDSLInstr::SIGNED);
 
@@ -1001,7 +1001,7 @@ generatePattern(MachineFunction &MF) {
       Type = MRI.getType(Root->getOperand(1).getReg());
     else
       Type = MRI.getType(Root->getOperand(0).getReg());
-    PatternArgs[Idx].LLT = Type;
+    PatternArgs[Idx].Llt = Type;
     PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(Type);
   }
 
@@ -1059,7 +1059,7 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
                     (IO ? "_wb, " : ", ");
 
       assert(!OutType.isValid());
-      OutType = PatternArgs[I].LLT;
+      OutType = PatternArgs[I].Llt;
     }
   }
 
