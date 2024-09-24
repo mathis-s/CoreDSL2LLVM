@@ -346,7 +346,7 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
         {{s64, p0, s64, getScalarMemAlign(64)}});
   }
 
-  if (ST.hasVendorXCvsimd()) {
+  if (ST.hasVendorXCVsimd()) {
     LoadActions.bitcastIf(LegalityPredicates::typeInSet(0, XCVVecTys),
                                LegalizeMutations::changeTo(0, LLT::scalar(32)));
     StoreActions.bitcastIf(LegalityPredicates::typeInSet(0, XCVVecTys),
