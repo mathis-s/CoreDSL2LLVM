@@ -809,7 +809,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     int ReadSize;
 
     MachineMemOperand *MMO = *Cur.memoperands_begin();
-    ReadSize = MMO->getSizeInBits();
+    ReadSize = MMO->getSizeInBits().getValue();
 
     assert(Cur.getOperand(1).isReg() && "expected register");
     auto *Addr = MRI.getOneDef(Cur.getOperand(1).getReg());
