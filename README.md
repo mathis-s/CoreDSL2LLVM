@@ -12,10 +12,8 @@ Everything is tied into the [LLVM build system](https://llvm.org/docs/CMake.html
 3. `cmake ..`
 4. `cmake --build .`
 
-
-C-like languages use the [Clang](https://clang.llvm.org/) frontend. This
-component compiles C, C++, Objective-C, and Objective-C++ code into LLVM bitcode
--- and from there into object files, using LLVM.
+## Usage
+Pattern Generation is implemented as an additional LLVM tool (`pattern-gen`) within the LLVM tree. Run `./llvm/build/bin/pattern-gen core_descs/Example.core_desc` to generate a pattern for an example instruction.
 
 ## Example
 
