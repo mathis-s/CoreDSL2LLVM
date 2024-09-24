@@ -271,7 +271,7 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
                                      {s32, p0, s16, 16},
                                      {s32, p0, s32, 32},
                                      {p0, p0, sXLen, XLen}});
-  if (ST.hasFastUnalignedAccess())
+  if (ST.enableUnalignedScalarMem())
     LoadStoreActions.legalForTypesWithMemDesc({{s32, p0, s8, 8},
                                                {s32, p0, s16, 8},
                                                {s32, p0, s32, 8},
