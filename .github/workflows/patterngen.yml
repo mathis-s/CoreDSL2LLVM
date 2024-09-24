@@ -1,0 +1,114 @@
+name: CoreDSL2LLVM (PatternGen) Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_target:
+        required: false
+        type: string
+        default: "all"
+      projects:
+        required: false
+        type: string
+        default: "clang;lld"
+      targets:
+        required: false
+        type: string
+        default: "X86;RISCV"
+      extra_cmake_args:
+        required: false
+        type: string
+        default: '-DLLVM_OPTIMIZED_TABLEGEN=ON'
+      os_list:
+        required: false
+        type: string
+        default: '["ubuntu-latest"]'
+      python_version:
+        required: false
+        type: string
+        default: '3.11'
+      enable_tests:
+        required: false
+        type: boolean
+        default: true
+      input_file:
+        required: false
+        type: string
+        default: 'Example.core_desc'
+      patterngen_args:
+        required: false
+        type: string
+        default: '-O 3'
+
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  # If the group name here is the same as the group name in the workflow that includes
+  # this one, then the action will try to wait on itself and get stuck.
+  group: llvm-project-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  patterngen-demo:
+    name: PatternGen Demo
+    runs-on: ${{ matrix.os }}
+    # container:
+    #   image: ${{(startsWith(matrix.os, 'ubuntu') && 'ghcr.io/llvm/ci-ubuntu-22.04:latest') || null}}
+    #   volumes:
+    #     - /mnt/:/mnt/
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os_list || '["ubuntu-latest"]') }}
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ inputs.python_version || '3.11' }}
+      - name: Install Ninja
+        uses: llvm/actions/install-ninja@main
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 250
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          max-size: 2G
+          key: ${{ matrix.os }}
+          variant: sccache
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            extra_cmake_args="-DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang"
+          fi
+          cmake -G Ninja \
+                -B build \
+                -S llvm \
+                -DLLVM_ENABLE_PROJECTS="${{ inputs.projects || 'clang;lld' }}" \
+                -DLLVM_TARGETS_TO_BUILD="${{ inputs.targets || 'X86;RISCV' }}" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DLLVM_ENABLE_ASSERTIONS=ON \
+                -DLLVM_BUILD_TOOLS=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=sccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=sccache \
+                $extra_cmake_args \
+                ${{ inputs.extra_cmake_args || '-DLLVM_OPTIMIZED_TABLEGEN=ON'}}
+          ninja -C build "${{ inputs.build_target || 'all'}}"
+
+      - name: Test
+        if: ${{ inputs.enable_tests }}
+        run: |
+          ninja -C build check-all
+
+      - name: Run PatternGen
+        run: |
+          build/bin/pattern-gen core_descs/${{ inputs.input_file || 'Example.core_desc' }} ${{ inputs.patterngen_args }}
+
+      - name: Upload generated files
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated
+          path: core_descs
