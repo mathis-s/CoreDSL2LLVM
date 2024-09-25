@@ -11,6 +11,25 @@ jobs:
       - name: Check out Git repository
         uses: actions/checkout@v4
 
+      - name: Install Ninja
+        uses: llvm/actions/install-ninja@main
+
+      - name: Configure with CMake
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            extra_cmake_args="-DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang"
+          fi
+          cmake -G Ninja \
+                -B build \
+                -S llvm \
+                -DLLVM_ENABLE_PROJECTS="clang;lld" \
+                -DLLVM_TARGETS_TO_BUILD="X86;RISCV" \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DLLVM_ENABLE_ASSERTIONS=ON \
+                -DLLVM_BUILD_TOOLS=ON \
+                $extra_cmake_args
+
       - uses: cpp-linter/cpp-linter-action@v2
         id: linter
         env:
@@ -20,6 +39,7 @@ jobs:
           tidy-checks: '' # Use .clang-tidy config file
           # only 'update' a single comment in a pull request's thread.
           thread-comments: ${{ github.event_name == 'pull_request' && 'update' }}
+          database: 'build'
       # - name: Fail fast?!
       #   if: steps.linter.outputs.checks-failed > 0
       #   run: exit 1
