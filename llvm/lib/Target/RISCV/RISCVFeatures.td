@@ -997,7 +997,8 @@ def HasStdExtSvinval : Predicate<"Subtarget->hasStdExtSvinval()">,
                        AssemblerPredicate<(all_of FeatureStdExtSvinval),
                            "'Svinval' (Fine-Grained Address-Translation Cache Invalidation)">;
 
-def FeatureGPR32V : SubtargetFeature<"gpr32v", "HasGPR32V", "true", "TODO">;
+def FeatureGPR32V
+   : SubtargetFeature<"gpr32v", "HasGPR32V", "true", "Support SIMD in 32-bit GPRs">;
 def HasGPR32V
    : Predicate<"Subtarget->hasGPR32V)">,
      AssemblerPredicate<(any_of FeatureGPR32V),
