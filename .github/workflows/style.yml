@@ -2,13 +2,13 @@ name: Lint
 
 on: [push, pull_request]
 
-permissions:
-  contents: write
-  pull-requests: write
+# permissions:
+#   contents: write
+#   pull-requests: write
 
 jobs:
   run-linters:
-    permissions: write-all
+    # permissions: write-all
     name: Run linters
     runs-on: ubuntu-latest
 
@@ -46,8 +46,8 @@ jobs:
           thread-comments: ${{ github.event_name == 'pull_request' && 'update' }}
           database: 'build'
           step-summary: true
-          tidy-review: true
-          format-review: true
+          # tidy-review: true
+          # format-review: true
       # - name: Fail fast?!
       #   if: steps.linter.outputs.checks-failed > 0
       #   run: exit 1
