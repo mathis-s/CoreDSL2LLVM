@@ -1223,7 +1223,7 @@ def HasVendorXCValu
                          "'XCValu' (CORE-V ALU Operations)">;
 
 def FeatureVendorXCVsimd
-    : RISCVExtension<1, 0, "CORE-V SIMD ALU">;
+    : RISCVExtension<1, 0, "CORE-V SIMD ALU", [FeatureGPR32V]>;
 def HasVendorXCVsimd
     : Predicate<"Subtarget->hasVendorXCVsimd()">,
       AssemblerPredicate<(any_of FeatureVendorXCVsimd),
