@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   run-linters:
+    permissions: write-all
     name: Run linters
     runs-on: ubuntu-latest
 
