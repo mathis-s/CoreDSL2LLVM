@@ -45,6 +45,9 @@ jobs:
           # only 'update' a single comment in a pull request's thread.
           thread-comments: ${{ github.event_name == 'pull_request' && 'update' }}
           database: 'build'
+          step-summary: true
+          tidy-review: true
+          format-review: true
       # - name: Fail fast?!
       #   if: steps.linter.outputs.checks-failed > 0
       #   run: exit 1
