@@ -2,13 +2,8 @@ name: Lint
 
 on: [push, pull_request]
 
-# permissions:
-#   contents: write
-#   pull-requests: write
-
 jobs:
   run-linters:
-    # permissions: write-all
     name: Run linters
     runs-on: ubuntu-latest
 
@@ -43,7 +38,7 @@ jobs:
           style: 'file'  # Use .clang-format config file
           tidy-checks: '' # Use .clang-tidy config file
           # only 'update' a single comment in a pull request's thread.
-          thread-comments: ${{ github.event_name == 'pull_request' && 'update' }}
+          thread-comments: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'update' }}
           database: 'build'
           step-summary: true
           # tidy-review: true
