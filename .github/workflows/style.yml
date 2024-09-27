@@ -3,7 +3,6 @@ name: Lint
 on: [push, pull_request]
 
 permissions:
-  metadata: read
   contents: write
   pull-requests: write
 
