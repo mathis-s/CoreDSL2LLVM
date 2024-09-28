@@ -365,7 +365,8 @@ public:
 
   unsigned getRegisterClassForType(bool Vector, Type *Ty = nullptr) const {
     if (Vector)
-      return ST->hasGPR32V() ? RISCVRegisterClass::GPRRC : RISCVRegisterClass::VRRC;
+      return ST->hasGPR32V() ? RISCVRegisterClass::GPRRC
+                             : RISCVRegisterClass::VRRC;
     if (!Ty)
       return RISCVRegisterClass::GPRRC;
 

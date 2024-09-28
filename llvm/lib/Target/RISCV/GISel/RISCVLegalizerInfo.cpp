@@ -128,12 +128,10 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
   getActionDefinitionsBuilder({G_ADD, G_SUB, G_AND, G_OR, G_XOR})
       .legalFor({s32, sXLen})
       .legalIf(typeIsLegalIntOrFPVec(0, IntOrFPVecTys, ST))
-      .legalIf(all(
-          typeInSet(0, XCVVecTys),
-          LegalityPredicate([=, &ST](const LegalityQuery &Query) {
-            return ST.hasVendorXCVsimd();
-          }
-      )))
+      .legalIf(all(typeInSet(0, XCVVecTys),
+                   LegalityPredicate([=, &ST](const LegalityQuery &Query) {
+                     return ST.hasVendorXCVsimd();
+                   })))
       .widenScalarToNextPow2(0)
       .clampScalar(0, s32, sXLen);
 
@@ -288,10 +286,12 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
 
     // allow bitcasting back and forth between vector and scalar
     getActionDefinitionsBuilder(G_BITCAST)
-        .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(0, s32),
-                                         LegalityPredicates::typeInSet(1, XCVVecTys)))
-        .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(1, s32),
-                                         LegalityPredicates::typeInSet(0, XCVVecTys)));
+        .legalIf(LegalityPredicates::all(
+            LegalityPredicates::typeIs(0, s32),
+            LegalityPredicates::typeInSet(1, XCVVecTys)))
+        .legalIf(LegalityPredicates::all(
+            LegalityPredicates::typeIs(1, s32),
+            LegalityPredicates::typeInSet(0, XCVVecTys)));
 
     getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor(XCVVecTys);
     ShiftActions.legalFor(XCVVecTys);
