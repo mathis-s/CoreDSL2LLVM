@@ -353,10 +353,12 @@ RISCVLegalizerInfo::RISCVLegalizerInfo(const RISCVSubtarget &ST)
 
     // allow bitcasting back and forth between vector and scalar
     getActionDefinitionsBuilder(G_BITCAST)
-        .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(0, s32),
-                                         LegalityPredicates::typeInSet(1, XCVVecTys)))
-        .legalIf(LegalityPredicates::all(LegalityPredicates::typeIs(1, s32),
-                                         LegalityPredicates::typeInSet(0, XCVVecTys)));
+        .legalIf(LegalityPredicates::all(
+            LegalityPredicates::typeIs(0, s32),
+            LegalityPredicates::typeInSet(1, XCVVecTys)))
+        .legalIf(LegalityPredicates::all(
+            LegalityPredicates::typeIs(1, s32),
+            LegalityPredicates::typeInSet(0, XCVVecTys)));
 
     getActionDefinitionsBuilder(G_INSERT_VECTOR_ELT).legalFor(XCVVecTys);
     ShiftActions.legalFor(XCVVecTys);

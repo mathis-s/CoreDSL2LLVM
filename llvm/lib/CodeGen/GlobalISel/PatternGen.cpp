@@ -20,7 +20,6 @@
 #include "llvm/CodeGen/GlobalISel/LegalizerInfo.h"
 #include "llvm/CodeGen/GlobalISel/Utils.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
-#include "llvm/CodeGenTypes/LowLevelType.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -32,6 +31,7 @@
 #include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
+#include "llvm/CodeGenTypes/LowLevelType.h"
 #include "llvm/Config/config.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstrTypes.h"
@@ -502,15 +502,12 @@ struct ConstantNode : public PatternNode {
       : PatternNode(PN_Constant, Type), Constant(c) {}
 
   std::string patternString(int Indent = 0) override {
-      std::string ConstantStr = (XLen == 64)
-                                    ? std::to_string((int64_t)Constant)
-                                    : std::to_string((int32_t)Constant);
+    std::string ConstantStr = (XLen == 64) ? std::to_string((int64_t)Constant)
+                                           : std::to_string((int32_t)Constant);
     if (Type.isFixedVector()) {
 
-
       std::string TypeStr = lltToString(Type);
-      return "(" + TypeStr + " (" + RegT + " " + ConstantStr +
-             "))";
+      return "(" + TypeStr + " (" + RegT + " " + ConstantStr + "))";
     }
     return "(" + lltToString(Type) + " " + ConstantStr + ")";
   }
