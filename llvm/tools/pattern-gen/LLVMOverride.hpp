@@ -2,5 +2,5 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Support/CodeGen.h"
 
-int RunOptPipeline(llvm::Module* M, bool is64Bit, std::string mattr, llvm::CodeGenOptLevel optLevel, std::ostream &irOut);
-int RunPatternGenPipeline(llvm::Module* M, bool is64Bit, std::string mattr);
+int runOptPipeline(llvm::Module* M, bool Is64Bit, std::string Mattr, llvm::CodeGenOptLevel OptLevel, std::ostream &IrOut);
+int runPatternGenPipeline(llvm::Module* M, bool Is64Bit, std::string Mattr);

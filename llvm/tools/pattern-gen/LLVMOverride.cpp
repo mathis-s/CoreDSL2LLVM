@@ -72,7 +72,7 @@ class RISCVDAGToPatterns : public RISCVDAGToDAGISel {
 public:
   RISCVDAGToPatterns(RISCVTargetMachine &TM, CodeGenOptLevel OptLevel)
       : RISCVDAGToDAGISel(TM, OptLevel) {}
-  void PreprocessISelDAG() {
+  void PreprocessISelDAG() override {
     RISCVDAGToDAGISel::PreprocessISelDAG();
     // PrintPattern(*CurDAG);
     CurDAG->clear();
@@ -102,7 +102,7 @@ addPassesToGenerateCode(LLVMTargetMachine &TM, PassManagerBase &PM,
 namespace {
 class RISCVPatternPassConfig : public TargetPassConfig {
 public:
-    RISCVPatternPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
+  RISCVPatternPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
       : TargetPassConfig(TM, PM) {
     if (TM.getOptLevel() != CodeGenOptLevel::None)
       substitutePass(&PostRASchedulerID, &PostMachineSchedulerID);
@@ -146,6 +146,7 @@ public:
   bool addPreISel() override;
   bool addInstSelector() override;
   bool addIRTranslator() override;
+  void addPreLegalizeMachineIR() override;
   bool addLegalizeMachineIR() override;
   bool addRegBankSelect() override;
   bool addGlobalInstructionSelect() override;
@@ -195,7 +196,7 @@ bool RISCVPatternPassConfig::addPreISel() {
 
 // FunctionPass *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
 SelectionDAGISel *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
-                                         CodeGenOptLevel OptLevel) {
+                                             CodeGenOptLevel OptLevel) {
   return new RISCVDAGToPatterns(TM, OptLevel);
 }
 
@@ -208,6 +209,14 @@ bool RISCVPatternPassConfig::addInstSelector() {
 bool RISCVPatternPassConfig::addIRTranslator() {
   addPass(new IRTranslator(getOptLevel()));
   return false;
+}
+
+void RISCVPatternPassConfig::addPreLegalizeMachineIR() {
+  if (getOptLevel() == CodeGenOptLevel::None) {
+    addPass(createRISCVO0PreLegalizerCombiner());
+  } else {
+    addPass(createRISCVPreLegalizerCombiner());
+  }
 }
 
 bool RISCVPatternPassConfig::addLegalizeMachineIR() {
@@ -363,10 +372,10 @@ llvm::TargetLibraryInfoWrapperPass(machine->getTargetTriple()));
     passes.run(*module);
 }*/
 
-void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
-                    llvm::CodeGenOptLevel optLevel) {
-  module->setTargetTriple(machine->getTargetTriple().str());
-  module->setDataLayout(machine->createDataLayout());
+void optimizeModule(llvm::TargetMachine *Machine, llvm::Module *Mod,
+                    llvm::CodeGenOptLevel OptLevel) {
+  Mod->setTargetTriple(Machine->getTargetTriple().str());
+  Mod->setDataLayout(Machine->createDataLayout());
 
   // Create the analysis managers.
   LoopAnalysisManager LAM;
@@ -374,13 +383,13 @@ void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
   CGSCCAnalysisManager CGAM;
   ModuleAnalysisManager MAM;
   PipelineTuningOptions PTO;
-  PTO.SLPVectorization = optLevel > llvm::CodeGenOptLevel::None;
+  PTO.SLPVectorization = OptLevel > llvm::CodeGenOptLevel::None;
 
   // Create the new pass manager builder.
   // Take a look at the PassBuilder constructor parameters for more
   // customization, e.g. specifying a TargetMachine or various debugging
   // options.
-  PassBuilder PB(machine, PTO);
+  PassBuilder PB(Machine, PTO);
 
   // Register all the basic analyses with the managers.
   PB.registerModuleAnalyses(MAM);
@@ -395,19 +404,19 @@ void optimizeModule(llvm::TargetMachine *machine, llvm::Module *module,
       PB.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O3);
 
   // Optimize the IR!
-  MPM.run(*module, MAM);
+  MPM.run(*Mod, MAM);
 }
 
-static void set_options() {
-  const char *args[] = {"", "--slp-threshold=-3", "--global-isel",
+static void setOptions() {
+  const char *Args[] = {"", "--slp-threshold=-3", "--global-isel",
                         "--global-isel-abort=1"};
-  cl::ParseCommandLineOptions(sizeof(args) / sizeof(args[0]), args);
+  cl::ParseCommandLineOptions(sizeof(Args) / sizeof(Args[0]), Args);
 }
 
 // Adapted from LLVM llc
-int RunOptPipeline(llvm::Module *M, bool is64Bit, std::string mattr,
-                   llvm::CodeGenOptLevel optLevel, std::ostream &irOut) {
-  set_options();
+int runOptPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr,
+                   llvm::CodeGenOptLevel OptLevel, std::ostream &IrOut) {
+  setOptions();
 
   InitializeAllTargets();
   InitializeAllTargetMCs();
@@ -433,10 +442,11 @@ int RunOptPipeline(llvm::Module *M, bool is64Bit, std::string mattr,
 
   // Load the module to be compiled...
   // SMDiagnostic Err;
-  Triple TheTriple((is64Bit ? "riscv64" : "riscv32"), "unknown", "linux", "gnu");
+  Triple TheTriple((Is64Bit ? "riscv64" : "riscv32"), "unknown", "linux",
+                   "gnu");
   codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
   std::string CPUStr = codegen::getCPUStr(),
-              FeaturesStr = codegen::getFeaturesStr() + mattr;
+              FeaturesStr = codegen::getFeaturesStr() + Mattr;
 
   TargetOptions Options;
   Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
@@ -444,11 +454,12 @@ int RunOptPipeline(llvm::Module *M, bool is64Bit, std::string mattr,
   std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
   std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
 
-  M->setTargetTriple(is64Bit ? "riscv64-unknown-linux-gnu" : "riscv32-unknown-linux-gnu");
+  M->setTargetTriple(Is64Bit ? "riscv64-unknown-linux-gnu"
+                             : "riscv32-unknown-linux-gnu");
 
-  std::string error;
+  std::string Error;
   const class Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, error);
+      llvm::TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, Error);
 
   TargetMachine *Target = new RISCVPatternTargetMachine(
       *TheTarget, TheTriple, CPUStr, FeaturesStr, Options, RM, CM,
@@ -459,14 +470,14 @@ int RunOptPipeline(llvm::Module *M, bool is64Bit, std::string mattr,
   // llvm::DebugFlag = true;
   M->setDataLayout(Target->createDataLayout().getStringRepresentation());
   // llvm::outs() << *M << "\n";
-  optimizeModule(Target, M, optLevel);
+  optimizeModule(Target, M, OptLevel);
   {
-    std::string moduleStr;
+    std::string ModuleStr;
     {
-      llvm::raw_string_ostream strStream(moduleStr);
-      strStream << *M;
+      llvm::raw_string_ostream StrStream(ModuleStr);
+      StrStream << *M;
     }
-    irOut << moduleStr;
+    IrOut << ModuleStr;
   }
   // llvm::outs() << *M << "\n";
   //  llvm::DebugFlag = false;
@@ -475,15 +486,16 @@ int RunOptPipeline(llvm::Module *M, bool is64Bit, std::string mattr,
 }
 
 // Adapted from LLVM llc
-int RunPatternGenPipeline(llvm::Module *M, bool is64Bit, std::string mattr) {
-  set_options();
+int runPatternGenPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr) {
+  setOptions();
 
   // Load the module to be compiled...
   // SMDiagnostic Err;
-  Triple TheTriple((is64Bit ? "riscv64" : "riscv32"), "unknown", "linux", "gnu");
+  Triple TheTriple((Is64Bit ? "riscv64" : "riscv32"), "unknown", "linux",
+                   "gnu");
   codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
   std::string CPUStr = codegen::getCPUStr(),
-              FeaturesStr = codegen::getFeaturesStr() + mattr;
+              FeaturesStr = codegen::getFeaturesStr() + Mattr;
 
   TargetOptions Options;
   Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
@@ -491,11 +503,12 @@ int RunPatternGenPipeline(llvm::Module *M, bool is64Bit, std::string mattr) {
   std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
   std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
 
-  M->setTargetTriple(is64Bit ? "riscv64-unknown-linux-gnu" : "riscv32-unknown-linux-gnu");
+  M->setTargetTriple(Is64Bit ? "riscv64-unknown-linux-gnu"
+                             : "riscv32-unknown-linux-gnu");
 
-  std::string error;
+  std::string Error;
   const class Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, error);
+      llvm::TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, Error);
 
   TargetMachine *Target = new RISCVPatternTargetMachine(
       *TheTarget, TheTriple, CPUStr, FeaturesStr, Options, RM, CM,
@@ -518,8 +531,8 @@ int RunPatternGenPipeline(llvm::Module *M, bool is64Bit, std::string mattr) {
 
   bool NoVerify = false;
 
-  static llvm::raw_null_ostream nullStream{};
-  if (Target->addPassesToEmitFile(PM, nullStream, nullptr,
+  static llvm::raw_null_ostream NullStream{};
+  if (Target->addPassesToEmitFile(PM, NullStream, nullptr,
                                   codegen::getFileType(), NoVerify, MMIWP)) {
     return -1;
   }

@@ -1,10 +1,8 @@
-#include <exception>
-
 #include <cstdio>
 #include <ctype.h>
+#include <exception>
 #include <filesystem>
 #include <fstream>
-#include <llvm/IR/LLVMContext.h>
 #include <map>
 #include <memory>
 #include <optional>
@@ -19,6 +17,7 @@
 #include "lib/Parser.hpp"
 #include "lib/Token.hpp"
 #include "lib/TokenStream.hpp"
+#include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/CodeGen.h"
@@ -44,21 +43,29 @@ static cl::opt<std::string>
 
 static cl::opt<bool> Force("f", cl::desc("Ignore parser errors."),
                            cl::cat(ToolOptions));
-static cl::opt<bool> SkipFmt("skip-formats", cl::desc("Skip tablegen formats step."),
-                          cl::cat(ToolOptions));
-static cl::opt<bool> SkipPat("skip-patterns", cl::desc("Skip pattern-gen step."),
-                          cl::cat(ToolOptions));
-static cl::opt<bool> SkipVerify("skip-verify", cl::desc("Skip verification step."),
-                          cl::cat(ToolOptions));
+static cl::opt<bool> SkipFmt("skip-formats",
+                             cl::desc("Skip tablegen formats step."),
+                             cl::cat(ToolOptions));
+static cl::opt<bool> SkipPat("skip-patterns",
+                             cl::desc("Skip pattern-gen step."),
+                             cl::cat(ToolOptions));
+static cl::opt<bool> SkipVerify("skip-verify",
+                                cl::desc("Skip verification step."),
+                                cl::cat(ToolOptions));
 static cl::opt<bool> PrintIR("print-ir", cl::desc("Print LLVM-IR module."),
-                          cl::cat(ToolOptions));
-static cl::opt<std::string>
-    Mattr("mattr2", cl::desc("Target specific attributes"),
-          cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-          // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
-          cl::init("+m,+fast-unaligned-access"));
+                             cl::cat(ToolOptions));
+static cl::opt<bool> NoExtend(
+    "no-extend",
+    cl::desc("Do not apply CDSL typing rules (Use C-like type inference)."),
+    cl::cat(ToolOptions));
+// static cl::opt<std::string>
+//     Mattr("mattr2", cl::desc("Target specific attributes"),
+//           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
+//           // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+//           cl::init("+m,+fast-unaligned-access"));
 
-static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"), cl::init(32));
+static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"),
+                         cl::init(32));
 
 // Determine optimization level.
 static cl::opt<char>
@@ -68,38 +75,40 @@ static cl::opt<char>
              cl::cat(ToolOptions), cl::init('3'));
 
 static cl::opt<std::string> Predicates(
-    "p", cl::desc("Predicate(s) used for instructions in output TableGen"), cl::cat(ToolOptions), cl::init("HasVendorXCValu"));
+    "p", cl::desc("Predicate(s) used for instructions in output TableGen"),
+    cl::cat(ToolOptions), cl::init("HasVendorXCValu"));
 
 #include <iostream>
 namespace fs = std::filesystem;
 
-static auto get_out_streams(std::string srcPath, std::string destPath, bool emitLL) {
-  fs::path outPath{destPath};
+static auto getOutStreams(std::string SrcPath, std::string DestPath,
+                          bool EmitLL) {
+  fs::path OutPath{DestPath};
 
-  fs::path inPath{srcPath};
-  fs::path basePath = inPath.parent_path() / inPath.stem();
+  fs::path InPath{SrcPath};
+  fs::path BasePath = InPath.parent_path() / InPath.stem();
 
-  std::string newExt = ".td";
-  if (outPath.compare("-") != 0) {
-    basePath = outPath.parent_path() / outPath.stem();
-    newExt = outPath.extension();
+  std::string NewExt = ".td";
+  if (OutPath.compare("-") != 0) {
+    BasePath = OutPath.parent_path() / OutPath.stem();
+    NewExt = OutPath.extension();
   }
   // TODO: allow .td in out path
-  std::string irPath = "/dev/null";
-  std::string fmtPath = "/dev/null";
-  std::string patPath = "/dev/null";
-  if (emitLL) {
-    irPath = basePath.string() + ".ll";
+  std::string IrPath = "/dev/null";
+  std::string FmtPath = "/dev/null";
+  std::string PatPath = "/dev/null";
+  if (EmitLL) {
+    IrPath = BasePath.string() + ".ll";
   }
   if (!SkipFmt) {
-    fmtPath = basePath.string() + "InstrFormat" + newExt;
+    FmtPath = BasePath.string() + "InstrFormat" + NewExt;
   }
   if (!SkipPat) {
-    patPath = basePath.string() + newExt;
+    PatPath = BasePath.string() + NewExt;
   }
 
-  return std::make_tuple(std::ofstream(irPath), std::ofstream(fmtPath),
-                         std::ofstream(patPath));
+  return std::make_tuple(std::ofstream(IrPath), std::ofstream(FmtPath),
+                         std::ofstream(PatPath));
 }
 
 int main(int argc, char **argv) {
@@ -113,19 +122,28 @@ int main(int argc, char **argv) {
   // const char* srcPath = argv[1];
 
   auto [irOut, formatOut, patternOut] =
-      get_out_streams(InputFilename, OutputFilename, true);
+      getOutStreams(InputFilename, OutputFilename, true);
 
-  TokenStream ts(InputFilename.c_str());
-  LLVMContext ctx;
-  auto mod = std::make_unique<Module>("mod", ctx);
-  auto instrs = ParseCoreDSL2(ts, (XLen == 64), mod.get());
+  TokenStream Ts(InputFilename.c_str());
+  LLVMContext Ctx;
+  auto Mod = std::make_unique<Module>("mod", Ctx);
+  auto Instrs = ParseCoreDSL2(Ts, (XLen == 64), Mod.get(), NoExtend);
+
+  if (irOut) {
+    std::string Str;
+    raw_string_ostream OS(Str);
+    OS << *Mod;
+    OS.flush();
+    irOut << Str << "\n";
+    irOut.close();
+  }
 
   if (!SkipVerify)
-    if (verifyModule(*mod, &errs()))
+    if (verifyModule(*Mod, &errs()))
       return -1;
 
   if (PrintIR)
-    llvm::outs() << *mod << "\n";
+    llvm::outs() << *Mod << "\n";
 
   // TODO: use force
 
@@ -145,19 +163,19 @@ int main(int argc, char **argv) {
     break;
   }
 
-  PGArgsStruct Args{.Mattr = Mattr,
+  PGArgsStruct Args{// .Mattr = Mattr,
                     .OptLevel = Opt,
                     .Predicates = Predicates,
-                    .is64Bit = (XLen == 64)};
+                    .Is64Bit = (XLen == 64)};
 
-  OptimizeBehavior(mod.get(), instrs, irOut, Args);
+  optimizeBehavior(Mod.get(), Instrs, irOut, Args);
   if (PrintIR)
-    llvm::outs() << *mod << "\n";
+    llvm::outs() << *Mod << "\n";
   if (!SkipFmt)
-    PrintInstrsAsTableGen(instrs, formatOut);
+    PrintInstrsAsTableGen(Instrs, formatOut);
 
   if (!SkipPat)
-    if (GeneratePatterns(mod.get(), instrs, patternOut, Args))
+    if (generatePatterns(Mod.get(), Instrs, patternOut, Args))
       return -1;
   return 0;
 }

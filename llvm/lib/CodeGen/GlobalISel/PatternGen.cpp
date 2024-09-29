@@ -1016,8 +1016,8 @@ generatePattern(MachineFunction &MF) {
 bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   // for convenience
-  XLen = PatternGenArgs::Args.is64Bit ? 64 : 32;
-  RegT = PatternGenArgs::Args.is64Bit ? "i64" : "i32";
+  XLen = PatternGenArgs::Args.Is64Bit ? 64 : 32;
+  RegT = PatternGenArgs::Args.Is64Bit ? "i64" : "i32";
 
   std::string InstName = MF.getName().str().substr(4);
   std::string InstNameO = InstName;
