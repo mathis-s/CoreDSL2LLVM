@@ -102,7 +102,7 @@ addPassesToGenerateCode(LLVMTargetMachine &TM, PassManagerBase &PM,
 namespace {
 class RISCVPatternPassConfig : public TargetPassConfig {
 public:
-    RISCVPatternPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
+  RISCVPatternPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
       : TargetPassConfig(TM, PM) {
     if (TM.getOptLevel() != CodeGenOptLevel::None)
       substitutePass(&PostRASchedulerID, &PostMachineSchedulerID);
@@ -196,7 +196,7 @@ bool RISCVPatternPassConfig::addPreISel() {
 
 // FunctionPass *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
 SelectionDAGISel *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
-                                         CodeGenOptLevel OptLevel) {
+                                             CodeGenOptLevel OptLevel) {
   return new RISCVDAGToPatterns(TM, OptLevel);
 }
 
@@ -214,7 +214,8 @@ bool RISCVPatternPassConfig::addIRTranslator() {
 void RISCVPatternPassConfig::addPreLegalizeMachineIR() {
   if (getOptLevel() == CodeGenOptLevel::None) {
     addPass(createRISCVO0PreLegalizerCombiner());
-  } else {                                                                                                             addPass(createRISCVPreLegalizerCombiner());
+  } else {
+    addPass(createRISCVPreLegalizerCombiner());
   }
 }
 
@@ -441,7 +442,8 @@ int RunOptPipeline(llvm::Module *M, bool is64Bit, std::string mattr,
 
   // Load the module to be compiled...
   // SMDiagnostic Err;
-  Triple TheTriple((is64Bit ? "riscv64" : "riscv32"), "unknown", "linux", "gnu");
+  Triple TheTriple((is64Bit ? "riscv64" : "riscv32"), "unknown", "linux",
+                   "gnu");
   codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
   std::string CPUStr = codegen::getCPUStr(),
               FeaturesStr = codegen::getFeaturesStr() + mattr;
@@ -452,7 +454,8 @@ int RunOptPipeline(llvm::Module *M, bool is64Bit, std::string mattr,
   std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
   std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
 
-  M->setTargetTriple(is64Bit ? "riscv64-unknown-linux-gnu" : "riscv32-unknown-linux-gnu");
+  M->setTargetTriple(is64Bit ? "riscv64-unknown-linux-gnu"
+                             : "riscv32-unknown-linux-gnu");
 
   std::string error;
   const class Target *TheTarget =
@@ -488,7 +491,8 @@ int RunPatternGenPipeline(llvm::Module *M, bool is64Bit, std::string mattr) {
 
   // Load the module to be compiled...
   // SMDiagnostic Err;
-  Triple TheTriple((is64Bit ? "riscv64" : "riscv32"), "unknown", "linux", "gnu");
+  Triple TheTriple((is64Bit ? "riscv64" : "riscv32"), "unknown", "linux",
+                   "gnu");
   codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
   std::string CPUStr = codegen::getCPUStr(),
               FeaturesStr = codegen::getFeaturesStr() + mattr;
@@ -499,7 +503,8 @@ int RunPatternGenPipeline(llvm::Module *M, bool is64Bit, std::string mattr) {
   std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
   std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
 
-  M->setTargetTriple(is64Bit ? "riscv64-unknown-linux-gnu" : "riscv32-unknown-linux-gnu");
+  M->setTargetTriple(is64Bit ? "riscv64-unknown-linux-gnu"
+                             : "riscv32-unknown-linux-gnu");
 
   std::string error;
   const class Target *TheTarget =
