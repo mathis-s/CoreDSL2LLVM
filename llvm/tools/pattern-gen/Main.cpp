@@ -44,23 +44,29 @@ static cl::opt<std::string>
 
 static cl::opt<bool> Force("f", cl::desc("Ignore parser errors."),
                            cl::cat(ToolOptions));
-static cl::opt<bool> SkipFmt("skip-formats", cl::desc("Skip tablegen formats step."),
-                          cl::cat(ToolOptions));
-static cl::opt<bool> SkipPat("skip-patterns", cl::desc("Skip pattern-gen step."),
-                          cl::cat(ToolOptions));
-static cl::opt<bool> SkipVerify("skip-verify", cl::desc("Skip verification step."),
-                          cl::cat(ToolOptions));
+static cl::opt<bool> SkipFmt("skip-formats",
+                             cl::desc("Skip tablegen formats step."),
+                             cl::cat(ToolOptions));
+static cl::opt<bool> SkipPat("skip-patterns",
+                             cl::desc("Skip pattern-gen step."),
+                             cl::cat(ToolOptions));
+static cl::opt<bool> SkipVerify("skip-verify",
+                                cl::desc("Skip verification step."),
+                                cl::cat(ToolOptions));
 static cl::opt<bool> PrintIR("print-ir", cl::desc("Print LLVM-IR module."),
-                          cl::cat(ToolOptions));
-static cl::opt<bool> NoExtend("no-extend", cl::desc("Do not apply CDSL typing rules (Use C-like type inference)."),
-                          cl::cat(ToolOptions));
+                             cl::cat(ToolOptions));
+static cl::opt<bool> NoExtend(
+    "no-extend",
+    cl::desc("Do not apply CDSL typing rules (Use C-like type inference)."),
+    cl::cat(ToolOptions));
 // static cl::opt<std::string>
 //     Mattr("mattr2", cl::desc("Target specific attributes"),
 //           cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
 //           // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
 //           cl::init("+m,+fast-unaligned-access"));
 
-static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"), cl::init(32));
+static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"),
+                         cl::init(32));
 
 // Determine optimization level.
 static cl::opt<char>
@@ -70,12 +76,14 @@ static cl::opt<char>
              cl::cat(ToolOptions), cl::init('3'));
 
 static cl::opt<std::string> Predicates(
-    "p", cl::desc("Predicate(s) used for instructions in output TableGen"), cl::cat(ToolOptions), cl::init("HasVendorXCValu"));
+    "p", cl::desc("Predicate(s) used for instructions in output TableGen"),
+    cl::cat(ToolOptions), cl::init("HasVendorXCValu"));
 
 #include <iostream>
 namespace fs = std::filesystem;
 
-static auto get_out_streams(std::string srcPath, std::string destPath, bool emitLL) {
+static auto get_out_streams(std::string srcPath, std::string destPath,
+                            bool emitLL) {
   fs::path outPath{destPath};
 
   fs::path inPath{srcPath};
