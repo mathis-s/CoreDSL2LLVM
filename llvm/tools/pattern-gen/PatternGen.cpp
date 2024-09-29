@@ -25,30 +25,30 @@
 #include <unordered_map>
 #include <utility>
 
-int OptimizeBehavior(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
-                     std::ostream &ostreamIR, PGArgsStruct args) {
-  return RunOptPipeline(M, args.is64Bit, args.Mattr, args.OptLevel, ostreamIR);
+int optimizeBehavior(llvm::Module *M, std::vector<CDSLInstr> const &Instrs,
+                     std::ostream &OstreamIR, PGArgsStruct Args) {
+  return runOptPipeline(M, Args.Is64Bit, Args.Mattr, Args.OptLevel, OstreamIR);
 }
 
-int GeneratePatterns(llvm::Module *M, std::vector<CDSLInstr> const &instrs,
-                     std::ostream &ostream, PGArgsStruct args) {
+int generatePatterns(llvm::Module *M, std::vector<CDSLInstr> const &Instrs,
+                     std::ostream &Ostream, PGArgsStruct Args) {
   // All other code in this file is called during code generation
   // by the LLVM pipeline. We thus "pass" arguments as globals.
-  llvm::PatternGenArgs::OutStream = &ostream;
-  llvm::PatternGenArgs::Args = args;
-  llvm::PatternGenArgs::Instrs = &instrs;
+  llvm::PatternGenArgs::OutStream = &Ostream;
+  llvm::PatternGenArgs::Args = Args;
+  llvm::PatternGenArgs::Instrs = &Instrs;
 
-  if (!args.Predicates.empty())
-    ostream << "let Predicates = [" << args.Predicates << "] in {\n\n";
+  if (!Args.Predicates.empty())
+    Ostream << "let Predicates = [" << Args.Predicates << "] in {\n\n";
 
-  int rv = RunPatternGenPipeline(M, args.is64Bit, args.Mattr);
+  int Rv = runPatternGenPipeline(M, Args.Is64Bit, Args.Mattr);
 
-  if (!args.Predicates.empty())
-    ostream << "}\n";
+  if (!Args.Predicates.empty())
+    Ostream << "}\n";
 
   llvm::PatternGenArgs::OutStream = nullptr;
   llvm::PatternGenArgs::Args = PGArgsStruct();
   llvm::PatternGenArgs::Instrs = nullptr;
 
-  return rv;
+  return Rv;
 }
