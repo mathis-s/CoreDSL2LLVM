@@ -4,6 +4,7 @@
 #include "TokenStream.hpp"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -21,7 +22,6 @@
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/AllocatorBase.h"
 #include "llvm/Support/TypeSize.h"
-#include "llvm/ADT/Statistic.h"
 #include <array>
 #include <cstdlib>
 #include <functional>
@@ -34,12 +34,8 @@
 
 #define DEBUG_TYPE "pattern-gen"
 
-STATISTIC(
-    PatternGenNumSetsParsed,
-    "Parsed instruction sets");
-STATISTIC(
-    PatternGenNumInstructionsParsed,
-    "Parsed instructions");
+STATISTIC(PatternGenNumSetsParsed, "Parsed instruction sets");
+STATISTIC(PatternGenNumInstructionsParsed, "Parsed instructions");
 
 using namespace std::placeholders;
 
