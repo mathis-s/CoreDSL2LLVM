@@ -17,13 +17,13 @@
 #include "lib/Parser.hpp"
 #include "lib/Token.hpp"
 #include "lib/TokenStream.hpp"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/InitLLVM.h"
-#include "llvm/ADT/Statistic.h"
 
 using namespace llvm;
 
