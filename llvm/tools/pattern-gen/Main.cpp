@@ -17,6 +17,7 @@
 #include "lib/Parser.hpp"
 #include "lib/Token.hpp"
 #include "lib/TokenStream.hpp"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Verifier.h"
@@ -177,5 +178,8 @@ int main(int argc, char **argv) {
   if (!SkipPat)
     if (generatePatterns(Mod.get(), Instrs, patternOut, Args))
       return -1;
+  // If statistics were requested, print them out now.
+  if (llvm::AreStatisticsEnabled())
+    llvm::PrintStatistics();
   return 0;
 }

@@ -13,6 +13,7 @@
 #include "../../../tools/pattern-gen/lib/InstrInfo.hpp"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/LazyBlockFrequencyInfo.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/CodeGen/GlobalISel/GISelKnownBits.h"
@@ -49,9 +50,20 @@
 #include <string>
 #include <utility>
 
-#define DEBUG_TYPE "instruction-select"
+#define DEBUG_TYPE "pattern-gen"
 
 using namespace llvm;
+
+STATISTIC(PatternGenNumInstructionsProcessed, "Processed instructions");
+STATISTIC(PatternGenNumInstructionsFailing, "Failing instructions");
+STATISTIC(PatternGenNumPatternsGenerated, "Generated patterns");
+STATISTIC(PatternGenNumPatternsFailing, "Failing patterns");
+STATISTIC(PatternGenNumErrorMultipleBlocks, "Errors of type: MULTIPLE_BLOCKS");
+STATISTIC(PatternGenNumErrorFormatReturn, "Errors of type: FORMAT_RETURN");
+STATISTIC(PatternGenNumErrorFormatStore, "Errors of type: FORMAT_STORE");
+STATISTIC(PatternGenNumErrorFormatLoad, "Errors of type: FORMAT_LOAD");
+STATISTIC(PatternGenNumErrorFormatImm, "Errors of type: FORMAT_IMM");
+STATISTIC(PatternGenNumErrorFormat, "Errors of type: FORMAT");
 
 #ifdef LLVM_GISEL_COV_PREFIX
 static cl::opt<std::string>
@@ -142,6 +154,11 @@ struct PatternError {
 std::string Errors[] = {"success",        "multiple blocks", "expected return",
                         "expected store", "load format",     "immediate format",
                         "format"};
+llvm::Statistic *ErrorStats[] = {
+    &PatternGenNumErrorMultipleBlocks, &PatternGenNumErrorFormatReturn,
+    &PatternGenNumErrorFormatStore,    &PatternGenNumErrorFormatLoad,
+    &PatternGenNumErrorFormatImm,      &PatternGenNumErrorFormat,
+};
 
 static const std::unordered_map<unsigned, std::string> CmpStr = {
     {CmpInst::Predicate::ICMP_EQ, "SETEQ"},
@@ -205,7 +222,9 @@ private:
 public:
   PatternNodeKind getKind() const { return Kind; }
   LLT Type;
-  PatternNode(PatternNodeKind Kind, LLT Type) : Kind(Kind), Type(Type) {}
+  bool IsImm = false;
+  PatternNode(PatternNodeKind Kind, LLT Type, bool IsImm)
+      : Kind(Kind), Type(Type), IsImm(IsImm) {}
 
   virtual std::string patternString(int Indent = 0) = 0;
   virtual LLT getRegisterTy(int OperandId) const {
@@ -220,7 +239,8 @@ struct NOpNode : public PatternNode {
   int Op;
   std::vector<std::unique_ptr<PatternNode>> Operands;
   NOpNode(LLT Type, int Op, std::vector<std::unique_ptr<PatternNode>> Operands)
-      : PatternNode(PN_NOp, Type), Op(Op), Operands(std::move(Operands)) {}
+      : PatternNode(PN_NOp, Type, false), Op(Op),
+        Operands(std::move(Operands)) {}
 
   std::string patternString(int Indent = 0) override {
     static const std::unordered_map<int, std::string> NOpStr = {
@@ -260,7 +280,7 @@ struct ShuffleNode : public PatternNode {
 
   ShuffleNode(LLT Type, int Op, std::unique_ptr<PatternNode> First,
               std::unique_ptr<PatternNode> Second, ArrayRef<int> Mask)
-      : PatternNode(PN_Shuffle, Type), Op(Op), First(std::move(First)),
+      : PatternNode(PN_Shuffle, Type, false), Op(Op), First(std::move(First)),
         Second(std::move(Second)), Mask(std::move(Mask)) {}
 
   std::string patternString(int Indent = 0) override {
@@ -309,15 +329,18 @@ struct TernopNode : public PatternNode {
   TernopNode(LLT Type, int Op, std::unique_ptr<PatternNode> First,
              std::unique_ptr<PatternNode> Second,
              std::unique_ptr<PatternNode> Third)
-      : PatternNode(PN_Ternop, Type), Op(Op), First(std::move(First)),
+      : PatternNode(PN_Ternop, Type, false), Op(Op), First(std::move(First)),
         Second(std::move(Second)), Third(std::move(Third)) {}
 
   std::string patternString(int Indent = 0) override {
-    static const std::unordered_map<int, std::string> BinopStr = {
-        {TargetOpcode::G_INSERT_VECTOR_ELT, "vector_insert"}};
+    static const std::unordered_map<int, std::string> TernopStr = {
+        {TargetOpcode::G_FSHL, "fshl"},
+        {TargetOpcode::G_FSHR, "fshr"},
+        {TargetOpcode::G_INSERT_VECTOR_ELT, "vector_insert"},
+        {TargetOpcode::G_SELECT, "select"}};
 
     std::string TypeStr = lltToString(Type);
-    std::string OpString = "(" + std::string(BinopStr.at(Op)) + " " +
+    std::string OpString = "(" + std::string(TernopStr.at(Op)) + " " +
                            First->patternString(Indent + 1) + ", " +
                            Second->patternString(Indent + 1) + ", " +
                            Third->patternString(Indent + 1) + ")";
@@ -350,7 +373,7 @@ struct BinopNode : public PatternNode {
 
   BinopNode(LLT Type, int Op, std::unique_ptr<PatternNode> Left,
             std::unique_ptr<PatternNode> Right)
-      : PatternNode(PN_Binop, Type), Op(Op), Left(std::move(Left)),
+      : PatternNode(PN_Binop, Type, false), Op(Op), Left(std::move(Left)),
         Right(std::move(Right)) {}
 
   std::string patternString(int Indent = 0) override {
@@ -358,7 +381,26 @@ struct BinopNode : public PatternNode {
         {TargetOpcode::G_ADD, "add"},
         {TargetOpcode::G_SUB, "sub"},
         {TargetOpcode::G_MUL, "mul"},
-        {TargetOpcode::G_SDIV, "div"},
+        {TargetOpcode::G_UMULH, "mulhu"},
+        {TargetOpcode::G_SMULH, "mulhs"},
+        {TargetOpcode::G_UDIV, "udiv"},
+        {TargetOpcode::G_SREM, "srem"},
+        {TargetOpcode::G_UREM, "urem"},
+        {TargetOpcode::G_SDIV, "sdiv"},
+        {TargetOpcode::G_SADDSAT, "saddsat"},
+        {TargetOpcode::G_UADDSAT, "uaddsat"},
+        {TargetOpcode::G_SSUBSAT, "ssubsat"},
+        {TargetOpcode::G_USUBSAT, "usubsat"},
+        {TargetOpcode::G_SSHLSAT, "sshlsat"},
+        {TargetOpcode::G_USHLSAT, "ushlsat"},
+        {TargetOpcode::G_SMULFIX, "smulfix"},
+        {TargetOpcode::G_UMULFIX, "umulfix"},
+        {TargetOpcode::G_SMULFIXSAT, "smulfixsat"},
+        {TargetOpcode::G_UMULFIXSAT, "umulfixsat"},
+        {TargetOpcode::G_SDIVFIX, "sdivfix"},
+        {TargetOpcode::G_UDIVFIX, "udivfix"},
+        {TargetOpcode::G_SDIVFIXSAT, "sdivfixsat"},
+        {TargetOpcode::G_UDIVFIXSAT, "udivfixsat"},
         {TargetOpcode::G_AND, "and"},
         {TargetOpcode::G_OR, "or"},
         {TargetOpcode::G_XOR, "xor"},
@@ -369,26 +411,54 @@ struct BinopNode : public PatternNode {
         {TargetOpcode::G_UMAX, "umax"},
         {TargetOpcode::G_SMIN, "smin"},
         {TargetOpcode::G_UMIN, "umin"},
+        {TargetOpcode::G_ROTR, "rotr"},
+        {TargetOpcode::G_ROTL, "rotl"},
         {TargetOpcode::G_EXTRACT_VECTOR_ELT, "vector_extract"}};
 
+    static const std::vector<double> CommOps = {
+        TargetOpcode::G_ADD,   TargetOpcode::G_MUL,  TargetOpcode::G_UMULH,
+        TargetOpcode::G_SMULH, TargetOpcode::G_AND,  TargetOpcode::G_OR,
+        TargetOpcode::G_XOR,   TargetOpcode::G_UMAX, TargetOpcode::G_SMIN,
+        TargetOpcode::G_UMIN}; // TODO: extend list
+    bool IsCommutable =
+        std::find(CommOps.begin(), CommOps.end(), Op) != CommOps.end();
+    // RegisterNode* LeftReg = static_cast<RegisterNode*>(Left.get());
+    // RegisterNode* RightReg = static_cast<RegisterNode*>(Right.get());
+    // bool LeftImm = (LeftReg != 0) ? LeftReg->IsImm : false;
+    // bool RightImm = (RightReg != 0) ? RightReg->IsImm : false;
+    bool LeftImm = Left->IsImm;
+    bool RightImm = Right->IsImm;
+    bool DoSwap = IsCommutable && LeftImm && !RightImm;
     std::string TypeStr = lltToString(Type);
-    std::string OpString = "(" + std::string(BinopStr.at(Op)) + " " +
-                           Left->patternString(Indent + 1) + ", " +
-                           Right->patternString(Indent + 1) + ")";
+    std::string LhsTypeStr = lltToString(Left->Type);
+    std::string RhsTypeStr = lltToString(Right->Type);
 
     // Explicitly specifying types for all ops increases pattern compile time
     // significantly, so we only do for ops where deduction fails otherwise.
     bool PrintType = false;
+    bool PrintSrcTypes = false;
     PrintType |= Type.getSizeInBits() != XLen;
     switch (Op) {
     case TargetOpcode::G_SHL:
     case TargetOpcode::G_LSHR:
     case TargetOpcode::G_ASHR:
       PrintType |= true;
+      PrintSrcTypes |= true;
       break;
     default:
       break;
     }
+    std::string LeftString = (DoSwap ? Right : Left)->patternString(Indent + 1);
+    std::string RightString =
+        (DoSwap ? Left : Right)->patternString(Indent + 1);
+    if (PrintSrcTypes) {
+      LeftString =
+          "(" + (DoSwap ? RhsTypeStr : LhsTypeStr) + " " + LeftString + ")";
+      RightString =
+          "(" + (DoSwap ? LhsTypeStr : RhsTypeStr) + " " + RightString + ")";
+    }
+    std::string OpString = "(" + std::string(BinopStr.at(Op)) + " " +
+                           LeftString + ", " + RightString + ")";
 
     if (PrintType)
       return "(" + TypeStr + " " + OpString + ")";
@@ -419,9 +489,12 @@ struct CompareNode : public BinopNode {
 
   std::string patternString(int Indent = 0) override {
     std::string TypeStr = lltToString(Type);
+    std::string LhsTypeStr = lltToString(Left->Type);
+    std::string RhsTypeStr = lltToString(Right->Type);
 
-    return "(" + TypeStr + " (setcc " + Left->patternString(Indent + 1) + ", " +
-           Right->patternString(Indent + 1) + ", " + CmpStr.at(Cond) + "))";
+    return "(" + TypeStr + " (setcc (" + LhsTypeStr + " " +
+           Left->patternString(Indent + 1) + "), (" + RhsTypeStr + " " +
+           Right->patternString(Indent + 1) + "), " + CmpStr.at(Cond) + "))";
   }
 };
 
@@ -436,7 +509,7 @@ struct SelectNode : public PatternNode {
              std::unique_ptr<PatternNode> Right,
              std::unique_ptr<PatternNode> Tval,
              std::unique_ptr<PatternNode> Fval)
-      : PatternNode(PN_Select, Type), Cond(Cond), Left(std::move(Left)),
+      : PatternNode(PN_Select, Type, false), Cond(Cond), Left(std::move(Left)),
         Right(std::move(Right)), Tval(std::move(Tval)), Fval(std::move(Fval)) {}
 
   std::string patternString(int Indent = 0) override {
@@ -471,7 +544,8 @@ struct UnopNode : public PatternNode {
   std::unique_ptr<PatternNode> Operand;
 
   UnopNode(LLT Type, int Op, std::unique_ptr<PatternNode> Operand)
-      : PatternNode(PN_Unop, Type), Op(Op), Operand(std::move(Operand)) {}
+      : PatternNode(PN_Unop, Type, false), Op(Op), Operand(std::move(Operand)) {
+  }
 
   std::string patternString(int Indent = 0) override {
     static const std::unordered_map<int, std::string> UnopStr = {
@@ -480,7 +554,14 @@ struct UnopNode : public PatternNode {
         {TargetOpcode::G_ZEXT, "zext"},
         {TargetOpcode::G_VECREDUCE_ADD, "vecreduce_add"},
         {TargetOpcode::G_TRUNC, "trunc"},
+        {TargetOpcode::G_BSWAP, "bswap"},
+        {TargetOpcode::G_BITREVERSE, "bitreverse"},
         {TargetOpcode::G_BITCAST, "bitcast"},
+        {TargetOpcode::G_CTLZ, "ctlz"},
+        {TargetOpcode::G_CTTZ, "cttz"},
+        {TargetOpcode::G_CTLZ_ZERO_UNDEF, "ctlz_zero_undef"},
+        {TargetOpcode::G_CTTZ_ZERO_UNDEF, "cttz_zero_undef"},
+        {TargetOpcode::G_CTPOP, "ctpop"},
         {TargetOpcode::G_ABS, "abs"}};
 
     std::string TypeStr = lltToString(Type);
@@ -507,7 +588,7 @@ struct UnopNode : public PatternNode {
 struct ConstantNode : public PatternNode {
   uint64_t Constant;
   ConstantNode(LLT Type, uint64_t Const)
-      : PatternNode(PN_Constant, Type), Constant(Const) {}
+      : PatternNode(PN_Constant, Type, true), Constant(Const) {}
 
   std::string patternString(int Indent = 0) override {
     std::string ConstantStr = (XLen == 64) ? std::to_string((int64_t)Constant)
@@ -527,7 +608,6 @@ struct ConstantNode : public PatternNode {
 
 struct RegisterNode : public PatternNode {
 
-  bool IsImm;
   StringRef Name;
 
   int Offset;
@@ -540,10 +620,13 @@ struct RegisterNode : public PatternNode {
 
   RegisterNode(LLT Type, StringRef Name, size_t RegIdx, bool IsImm, int Offset,
                int Size, bool Sext)
-      : PatternNode(PN_Register, Type), IsImm(IsImm), Name(Name),
-        Offset(Offset), Size(Size), Sext(Sext), RegIdx(RegIdx) {}
+      : PatternNode(PN_Register, Type, IsImm), Name(Name), Offset(Offset),
+        Size(Size), Sext(Sext), RegIdx(RegIdx) {}
 
   std::string patternString(int Indent = 0) override {
+    std::string TypeStr = lltToString(Type);
+    bool PrintType = false;
+    // bool PrintType = true;
 
     if (IsImm) {
       // Immediate Operands
@@ -554,20 +637,29 @@ struct RegisterNode : public PatternNode {
 
     // Full-Size Register Operands
     if ((uint64_t)Size == XLen) {
+      std::string Str;
       if (Type.isScalar() && Type.getSizeInBits() == XLen)
-        return "GPR:$" + std::string(Name);
+        Str = "GPR:$" + std::string(Name);
+      if (PrintType)
+        return "(" + TypeStr + " " + Str + ")";
+      return Str;
+      abort();
     }
 
     // Vector Types (currently rv32 only)
     if ((uint64_t)Size == 32 && XLen == 32) {
+      std::string Str;
       if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
           Type.getElementType().isScalar() &&
           Type.getElementType().getSizeInBits() == 8)
-        return "GPR32V4:$" + std::string(Name);
+        Str = "GPR32V4:$" + std::string(Name);
       if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
           Type.getElementType().isScalar() &&
           Type.getElementType().getSizeInBits() == 16)
-        return "GPR32V2:$" + std::string(Name);
+        Str = "GPR32V2:$" + std::string(Name);
+      if (PrintType)
+        return "(" + TypeStr + " " + Str + ")";
+      return Str;
       abort();
     }
 
@@ -588,8 +680,11 @@ struct RegisterNode : public PatternNode {
           Str = ("(" + RegT + " ") + "(srl GPR:$" + std::string(Name) +
                 (" (" + RegT + " ") + std::to_string(Offset * 8) + ")))";
       }
+      if (PrintType)
+        return "(" + TypeStr + " " + Str + ")";
       return Str;
     }
+
     abort();
   }
 
@@ -742,10 +837,26 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_ADD:
   case TargetOpcode::G_SUB:
   case TargetOpcode::G_MUL:
+  case TargetOpcode::G_UMULH:
+  case TargetOpcode::G_SMULH:
   case TargetOpcode::G_SDIV:
   case TargetOpcode::G_UDIV:
   case TargetOpcode::G_SREM:
   case TargetOpcode::G_UREM:
+  case TargetOpcode::G_SADDSAT:
+  case TargetOpcode::G_UADDSAT:
+  case TargetOpcode::G_SSUBSAT:
+  case TargetOpcode::G_USUBSAT:
+  case TargetOpcode::G_SSHLSAT:
+  case TargetOpcode::G_USHLSAT:
+  case TargetOpcode::G_SMULFIX:
+  case TargetOpcode::G_UMULFIX:
+  case TargetOpcode::G_SMULFIXSAT:
+  case TargetOpcode::G_UMULFIXSAT:
+  case TargetOpcode::G_SDIVFIX:
+  case TargetOpcode::G_UDIVFIX:
+  case TargetOpcode::G_SDIVFIXSAT:
+  case TargetOpcode::G_UDIVFIXSAT:
   case TargetOpcode::G_AND:
   case TargetOpcode::G_OR:
   case TargetOpcode::G_XOR:
@@ -754,6 +865,8 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_SMIN:
   case TargetOpcode::G_UMIN:
   case TargetOpcode::G_EXTRACT_VECTOR_ELT:
+  case TargetOpcode::G_ROTR:
+  case TargetOpcode::G_ROTL:
   case TargetOpcode::G_SHL:
   case TargetOpcode::G_LSHR:
   case TargetOpcode::G_ASHR: {
@@ -774,6 +887,13 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   case TargetOpcode::G_ZEXT:
   case TargetOpcode::G_VECREDUCE_ADD:
   case TargetOpcode::G_TRUNC:
+  case TargetOpcode::G_BSWAP:
+  case TargetOpcode::G_BITREVERSE:
+  case TargetOpcode::G_CTLZ:
+  case TargetOpcode::G_CTTZ:
+  case TargetOpcode::G_CTLZ_ZERO_UNDEF:
+  case TargetOpcode::G_CTTZ_ZERO_UNDEF:
+  case TargetOpcode::G_CTPOP:
   case TargetOpcode::G_ABS: {
 
     auto [Err, NodeR] = traverseUnopOperands(MRI, Cur);
@@ -833,6 +953,10 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
         return std::make_pair(PatternError(FORMAT_LOAD, Offset), nullptr);
 
       ReadOffset = Offset->getOperand(1).getCImm()->getLimitedValue();
+    }
+    if (AddrI->getOpcode() == TargetOpcode::G_SELECT) {
+      // TODO: implement this!
+      return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
     }
     if (AddrI->getOpcode() != TargetOpcode::COPY)
       return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
@@ -916,6 +1040,9 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
+  case TargetOpcode::G_FSHL:
+  case TargetOpcode::G_FSHR:
+  case TargetOpcode::G_SELECT:
   case TargetOpcode::G_INSERT_VECTOR_ELT: {
     auto [Err, NodeFirst, NodeSecond, NodeThird] =
         traverseTernopOperands(MRI, Cur);
@@ -1021,6 +1148,7 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   std::string InstName = MF.getName().str().substr(4);
   std::string InstNameO = InstName;
+  ++PatternGenNumInstructionsProcessed;
   {
     auto It = std::find_if(
         PatternGenArgs::Instrs->begin(), PatternGenArgs::Instrs->end(),
@@ -1039,15 +1167,19 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   if (Err) {
     llvm::errs() << "Pattern Generation failed for " << MF.getName() << ": "
                  << Errors[Err.Type] << '\n';
+    ++(*ErrorStats[Err.Type]);
     if (Err.Inst) {
       llvm::errs() << "Match failure occurred here:\n";
       llvm::errs() << *Err.Inst << "\n";
     }
+    ++PatternGenNumInstructionsFailing;
+    ++PatternGenNumPatternsFailing;
     return true;
   }
 
   llvm::outs() << "Pattern for " << InstName << ": " << Node->patternString()
                << '\n';
+  ++PatternGenNumPatternsGenerated;
 
   LLT OutType;
   std::string OutsString;
