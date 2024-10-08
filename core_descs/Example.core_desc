@@ -1,10 +1,14 @@
-// RUN: pattern-gen %s -O 3 --no-extend --mattr=+m | FileCheck --check-prefixes=CHECK,CHECK-EXTEND %s
-// RUN: pattern-gen %s -O 3 --no-extend --mattr=+m --no-extend | FileCheck --check-prefixes=CHECK,CHECK-NOEXTEND %s
+// RUN: pattern-gen %s -O 3 --riscv-xlen 32 --mattr=+m | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-EXTEND -allow-unused-prefixes %s
+// RUN: pattern-gen %s -O 3 --riscv-xlen 64 --mattr=+m | FileCheck --check-prefixes=CHECK-RV64,CHECK-RV64-EXTEND -allow-unused-prefixes %s
+// RUN: pattern-gen %s -O 3 --no-extend --riscv-xlen 32 --mattr=+m | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-NOEXTEND -allow-unused-prefixes %s
+// RUN: pattern-gen %s -O 3 --no-extend --riscv-xlen 64 --mattr=+m | FileCheck --check-prefixes=CHECK-RV64,CHECK-RV64-NOEXTEND -allow-unused-prefixes %s
 
 InstructionSet XCoreVSIMD extends RISCVBase {
+
 instructions {
-    // CHECK-EXTEND: Pattern for CV_SUBINCACC: (add (sub (add GPR:$rs1, (i32 1)), GPR:$rs2), GPR:$rd)
-    // CHECK-NOEXTEND: Pattern for CV_SUBINCACC: (add (sub (add GPR:$rs1, (i32 1)), GPR:$rs2), GPR:$rd)
+
+    // CHECK-RV32: Pattern for CV_SUBINCACC: (add (sub (add GPR:$rs1, (i32 1)), GPR:$rs2), GPR:$rd)
+    // CHECK-RV64: Pattern for CV_SUBINCACC: (add (sub (add GPR:$rs1, (i64 1)), GPR:$rs2), GPR:$rd)
     CV_SUBINCACC {
       encoding: 7'b0101000 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
       assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
@@ -14,7 +18,9 @@ instructions {
         }
       }
     }
-    // CHECK-NEXT: Pattern for CV_MAXU: (select (i32 (setcc (i32 GPR:$rs1), (i32 GPR:$rs2), SETUGT)), GPR:$rs1, GPR:$rs2)
+
+    // CHECK-RV32-NEXT: Pattern for CV_MAXU: (select (i32 (setcc (i32 GPR:$rs1), (i32 GPR:$rs2), SETUGT)), GPR:$rs1, GPR:$rs2)
+    // CHECK-RV64-NEXT: Pattern for CV_MAXU: (select (i64 (setcc (i64 GPR:$rs1), (i64 GPR:$rs2), SETUGT)), GPR:$rs1, GPR:$rs2)
     CV_MAXU {
       encoding: 7'b0101110 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
       assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
@@ -24,7 +30,9 @@ instructions {
         }
       }
     }
-    // CHECK-NEXT: Pattern for NAND: (xor (and GPR:$rs2, GPR:$rs1), (i32 -1))
+
+    // CHECK-RV32-NEXT: Pattern for NAND: (xor (and GPR:$rs2, GPR:$rs1), (i32 -1))
+    // CHECK-RV64-NEXT: Pattern for NAND: (xor (and GPR:$rs2, GPR:$rs1), (i64 -1))
     NAND {
       encoding: 7'b0101110 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b1101011;
       assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
