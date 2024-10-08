@@ -3,7 +3,7 @@
 // RUN: pattern-gen %s -O 3 --no-extend --riscv-xlen 32 --mattr=+m | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-NOEXTEND -allow-unused-prefixes %s
 // RUN: pattern-gen %s -O 3 --no-extend --riscv-xlen 64 --mattr=+m | FileCheck --check-prefixes=CHECK-RV64,CHECK-RV64-NOEXTEND -allow-unused-prefixes %s
 
-InstructionSet XCoreVSIMD extends RISCVBase {
+InstructionSet XExample extends RISCVBase {
 
     instructions {
 
