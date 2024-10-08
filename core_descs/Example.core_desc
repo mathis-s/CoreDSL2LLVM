@@ -5,42 +5,43 @@
 
 InstructionSet XCoreVSIMD extends RISCVBase {
 
-instructions {
+    instructions {
 
-    // CHECK-RV32: Pattern for CV_SUBINCACC: (add (sub (add GPR:$rs1, (i32 1)), GPR:$rs2), GPR:$rd)
-    // CHECK-RV64: Pattern for CV_SUBINCACC: (add (sub (add GPR:$rs1, (i64 1)), GPR:$rs2), GPR:$rd)
-    CV_SUBINCACC {
-      encoding: 7'b0101000 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
-      assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
-      behavior: {
-        if (rd != 0) {
-          X[rd] += X[rs1] - X[rs2] + 1;
-        }
+      // CHECK-RV32: Pattern for CV_SUBINCACC: (add (sub (add GPR:$rs1, (i32 1)), GPR:$rs2), GPR:$rd)
+      // CHECK-RV64: Pattern for CV_SUBINCACC: (add (sub (add GPR:$rs1, (i64 1)), GPR:$rs2), GPR:$rd)
+      CV_SUBINCACC {
+          encoding: 7'b0101000 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
+          assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+          behavior: {
+              if (rd != 0) {
+                  X[rd] += X[rs1] - X[rs2] + 1;
+              }
+          }
       }
-    }
 
-    // CHECK-RV32-NEXT: Pattern for CV_MAXU: (select (i32 (setcc (i32 GPR:$rs1), (i32 GPR:$rs2), SETUGT)), GPR:$rs1, GPR:$rs2)
-    // CHECK-RV64-NEXT: Pattern for CV_MAXU: (select (i64 (setcc (i64 GPR:$rs1), (i64 GPR:$rs2), SETUGT)), GPR:$rs1, GPR:$rs2)
-    CV_MAXU {
-      encoding: 7'b0101110 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
-      assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
-      behavior: {
-        if (rd != 0) {
-          X[rd] = X[rs1] > X[rs2] ? X[rs1] : X[rs2];
-        }
+      // CHECK-RV32-NEXT: Pattern for CV_MAXU: (select (i32 (setcc (i32 GPR:$rs1), (i32 GPR:$rs2), SETUGT)), GPR:$rs1, GPR:$rs2)
+      // CHECK-RV64-NEXT: Pattern for CV_MAXU: (select (i64 (setcc (i64 GPR:$rs1), (i64 GPR:$rs2), SETUGT)), GPR:$rs1, GPR:$rs2)
+      CV_MAXU {
+          encoding: 7'b0101110 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
+          assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+          behavior: {
+              if (rd != 0) {
+                  X[rd] = X[rs1] > X[rs2] ? X[rs1] : X[rs2];
+              }
+          }
       }
-    }
 
-    // CHECK-RV32-NEXT: Pattern for NAND: (xor (and GPR:$rs2, GPR:$rs1), (i32 -1))
-    // CHECK-RV64-NEXT: Pattern for NAND: (xor (and GPR:$rs2, GPR:$rs1), (i64 -1))
-    NAND {
-      encoding: 7'b0101110 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b1101011;
-      assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
-      behavior: {
-        if (rd != 0) {
-          X[rd] = ~(X[rs1] & X[rs2]);
-        }
+      // CHECK-RV32-NEXT: Pattern for NAND: (xor (and GPR:$rs2, GPR:$rs1), (i32 -1))
+      // CHECK-RV64-NEXT: Pattern for NAND: (xor (and GPR:$rs2, GPR:$rs1), (i64 -1))
+      NAND {
+          encoding: 7'b0101110 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b1101011;
+          assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+          behavior: {
+              if (rd != 0) {
+                  X[rd] = ~(X[rs1] & X[rs2]);
+              }
+          }
       }
+
     }
-  }
 }
