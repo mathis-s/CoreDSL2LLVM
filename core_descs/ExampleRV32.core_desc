@@ -1,9 +1,9 @@
-// RUN: pattern-gen %s -O 3 --no-extend --mattr=+m --riscv-xlen 32 | FileCheck --check-prefixes=CHECK,CHECK-EXTEND %s
-// RUN: pattern-gen %s -O 3 --no-extend --mattr=+m --riscv-xlen 32 --no-extend | FileCheck --check-prefixes=CHECK,CHECK-NOEXTEND %s
+// RUN: pattern-gen %s -O 3 --mattr=+m --riscv-xlen 32 | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-EXTEND -allow-unused-prefixes %s
+// RUN: pattern-gen %s -O 3 --no-extend --mattr=+m --riscv-xlen 32 | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-NOEXTED -allow-unused-prefixes %s
 
 InstructionSet XCoreVSIMD extends RISCVBase {
 instructions {
-    // CHECK: Pattern for LB: (i32 (sextloadi8 (add GPR:$rs1, (i32 uimm12:$imm))))
+    // CHECK-RV32: Pattern for LB: (i32 (sextloadi8 (add GPR:$rs1, (i32 uimm12:$imm))))
     LB {
         encoding: imm[11:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0000011;
         assembly:"{name(rd)}, {imm}({name(rs1)})";
@@ -13,7 +13,7 @@ instructions {
             if((rd) != 0) X[rd] = (unsigned<XLEN>)res;
         }
     }
-    // CHECK-NEXT: Pattern for LH: (i32 (sextloadi16 (add GPR:$rs1, (i32 uimm12:$imm))))
+    // CHECK-RV32-NEXT: Pattern for LH: (i32 (sextloadi16 (add GPR:$rs1, (i32 uimm12:$imm))))
     LH {
         encoding: imm[11:0] :: rs1[4:0] :: 3'b001 :: rd[4:0] :: 7'b0000011;
         assembly:"{name(rd)}, {imm}({name(rs1)})";
@@ -23,7 +23,7 @@ instructions {
             if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
          }
     }
-    // CHECK-NEXT: Pattern for LW: (i32 (load (add GPR:$rs1, (i32 uimm12:$imm))))
+    // CHECK-RV32-NEXT: Pattern for LW: (i32 (load (add GPR:$rs1, (i32 uimm12:$imm))))
     LW {
         encoding: imm[11:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
         assembly:"{name(rd)}, {imm}({name(rs1)})";
@@ -33,7 +33,7 @@ instructions {
             if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
         }
     }
-    // CHECK-NEXT: Pattern for LBU: (i32 (zextloadi8 (add GPR:$rs1, (i32 uimm12:$imm))))
+    // CHECK-RV32-NEXT: Pattern for LBU: (i32 (zextloadi8 (add GPR:$rs1, (i32 uimm12:$imm))))
     LBU {
             encoding: imm[11:0] :: rs1[4:0] :: 3'b100 :: rd[4:0] :: 7'b0000011;
             assembly:"{name(rd)}, {imm}({name(rs1)})";
@@ -43,7 +43,7 @@ instructions {
                 if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
             }
         }
-    // CHECK-NEXT: Pattern for LHU: (i32 (zextloadi16 (add GPR:$rs1, (i32 uimm12:$imm))))
+    // CHECK-RV32-NEXT: Pattern for LHU: (i32 (zextloadi16 (add GPR:$rs1, (i32 uimm12:$imm))))
     LHU {
         encoding: imm[11:0] :: rs1[4:0] :: 3'b101 :: rd[4:0] :: 7'b0000011;
         assembly:"{name(rd)}, {imm}({name(rs1)})";
