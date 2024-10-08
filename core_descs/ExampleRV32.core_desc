@@ -2,39 +2,44 @@
 // RUN: pattern-gen %s -O 3 --no-extend --mattr=+m --riscv-xlen 32 | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-NOEXTED -allow-unused-prefixes %s
 
 InstructionSet XCoreVSIMD extends RISCVBase {
-instructions {
-    // CHECK-RV32: Pattern for LB: (i32 (sextloadi8 (add GPR:$rs1, (i32 uimm12:$imm))))
-    LB {
-        encoding: imm[11:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0000011;
-        assembly:"{name(rd)}, {imm}({name(rs1)})";
-        behavior: {
-            unsigned<XLEN> load_address = X[rs1] + (signed)imm;
-            signed<8> res = (signed<8>)MEM8[load_address];
-            if((rd) != 0) X[rd] = (unsigned<XLEN>)res;
+
+    instructions {
+
+        // CHECK-RV32: Pattern for LB: (i32 (sextloadi8 (add GPR:$rs1, (i32 uimm12:$imm))))
+        LB {
+            encoding: imm[11:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0000011;
+            assembly:"{name(rd)}, {imm}({name(rs1)})";
+            behavior: {
+                unsigned<XLEN> load_address = X[rs1] + (signed)imm;
+                signed<8> res = (signed<8>)MEM8[load_address];
+                if((rd) != 0) X[rd] = (unsigned<XLEN>)res;
+            }
         }
-    }
-    // CHECK-RV32-NEXT: Pattern for LH: (i32 (sextloadi16 (add GPR:$rs1, (i32 uimm12:$imm))))
-    LH {
-        encoding: imm[11:0] :: rs1[4:0] :: 3'b001 :: rd[4:0] :: 7'b0000011;
-        assembly:"{name(rd)}, {imm}({name(rs1)})";
-        behavior: {
-            unsigned<XLEN> load_address = X[rs1] + (signed)imm;
-            signed<16> res = (signed<16>)MEM16[load_address];
-            if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
-         }
-    }
-    // CHECK-RV32-NEXT: Pattern for LW: (i32 (load (add GPR:$rs1, (i32 uimm12:$imm))))
-    LW {
-        encoding: imm[11:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
-        assembly:"{name(rd)}, {imm}({name(rs1)})";
-        behavior: {
-            unsigned<XLEN> load_address = X[rs1] + (signed)imm;
-            signed<32> res = (signed<32>)MEM32[load_address];
-            if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
+
+        // CHECK-RV32-NEXT: Pattern for LH: (i32 (sextloadi16 (add GPR:$rs1, (i32 uimm12:$imm))))
+        LH {
+            encoding: imm[11:0] :: rs1[4:0] :: 3'b001 :: rd[4:0] :: 7'b0000011;
+            assembly:"{name(rd)}, {imm}({name(rs1)})";
+            behavior: {
+                unsigned<XLEN> load_address = X[rs1] + (signed)imm;
+                signed<16> res = (signed<16>)MEM16[load_address];
+                if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
+            }
         }
-    }
-    // CHECK-RV32-NEXT: Pattern for LBU: (i32 (zextloadi8 (add GPR:$rs1, (i32 uimm12:$imm))))
-    LBU {
+
+        // CHECK-RV32-NEXT: Pattern for LW: (i32 (load (add GPR:$rs1, (i32 uimm12:$imm))))
+        LW {
+            encoding: imm[11:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
+            assembly:"{name(rd)}, {imm}({name(rs1)})";
+            behavior: {
+                unsigned<XLEN> load_address = X[rs1] + (signed)imm;
+                signed<32> res = (signed<32>)MEM32[load_address];
+                if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
+            }
+        }
+
+        // CHECK-RV32-NEXT: Pattern for LBU: (i32 (zextloadi8 (add GPR:$rs1, (i32 uimm12:$imm))))
+        LBU {
             encoding: imm[11:0] :: rs1[4:0] :: 3'b100 :: rd[4:0] :: 7'b0000011;
             assembly:"{name(rd)}, {imm}({name(rs1)})";
             behavior: {
@@ -43,53 +48,57 @@ instructions {
                 if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
             }
         }
-    // CHECK-RV32-NEXT: Pattern for LHU: (i32 (zextloadi16 (add GPR:$rs1, (i32 uimm12:$imm))))
-    LHU {
-        encoding: imm[11:0] :: rs1[4:0] :: 3'b101 :: rd[4:0] :: 7'b0000011;
-        assembly:"{name(rd)}, {imm}({name(rs1)})";
-        behavior: {
-            unsigned<XLEN> load_address = X[rs1] + (signed)imm;
-            unsigned<16> res = (unsigned<16>)MEM16[load_address];
-            if((rd) != 0) X[rd] = (unsigned<XLEN>)res;
+
+        // CHECK-RV32-NEXT: Pattern for LHU: (i32 (zextloadi16 (add GPR:$rs1, (i32 uimm12:$imm))))
+        LHU {
+            encoding: imm[11:0] :: rs1[4:0] :: 3'b101 :: rd[4:0] :: 7'b0000011;
+            assembly:"{name(rd)}, {imm}({name(rs1)})";
+            behavior: {
+                unsigned<XLEN> load_address = X[rs1] + (signed)imm;
+                unsigned<16> res = (unsigned<16>)MEM16[load_address];
+                if((rd) != 0) X[rd] = (unsigned<XLEN>)res;
+            }
         }
+
+        // SB {
+        //     encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b000 :: imm[4:0] :: 7'b0100011;
+        //     assembly:"{name(rs2)}, {imm}({name(rs1)})";
+        //     behavior: {
+        //         unsigned<XLEN> store_address = X[rs1] + (signed)imm;
+        //         MEM8[store_address] = (signed<8>)X[rs2];
+        //     }
+        // }
+        //
+        // SH {
+        //     encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b001 :: imm[4:0] :: 7'b0100011;
+        //     assembly:"{name(rs2)}, {imm}({name(rs1)})";
+        //     behavior: {
+        //         unsigned<XLEN> store_address = X[rs1] + (signed)imm;
+        //         MEM16[store_address] = (signed<16>)X[rs2];
+        //     }
+        // }
+        //
+        // SW {
+        //     encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: imm[4:0] :: 7'b0100011;
+        //     assembly:"{name(rs2)}, {imm}({name(rs1)})";
+        //     behavior: {
+        //         unsigned<XLEN> store_address = X[rs1] + (signed)imm;
+        //         MEM32[store_address] = (signed<32>)X[rs2];
+        //     }
+        // }
+        //
+        // CV_LB_ri_inc {
+        //     encoding: imm12[11:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0001011;
+        //     // assembly: {"cv.lb", "{name(rd)}, {imm12}({name(rs1)}!)"};
+        //     assembly: "{name(rd)}, {imm12}({name(rs1)}!)";
+        //     behavior: {
+        //         unsigned<XLEN> load_address = X[rs1];
+        //         signed<8> res = (signed<8>)MEM8[load_address];
+        //         if (rd != 0) X[rd] = (unsigned<XLEN>)res;
+        //         X[rs1] += (signed)imm12;
+        //     }
+        // }
+
     }
-    // SB {
-    //     encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b000 :: imm[4:0] :: 7'b0100011;
-    //     assembly:"{name(rs2)}, {imm}({name(rs1)})";
-    //     behavior: {
-    //         unsigned<XLEN> store_address = X[rs1] + (signed)imm;
-    //         MEM8[store_address] = (signed<8>)X[rs2];
-    //     }
-    // }
-
-    // SH {
-    //     encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b001 :: imm[4:0] :: 7'b0100011;
-    //     assembly:"{name(rs2)}, {imm}({name(rs1)})";
-    //     behavior: {
-    //         unsigned<XLEN> store_address = X[rs1] + (signed)imm;
-    //         MEM16[store_address] = (signed<16>)X[rs2];
-    //     }
-    // }
-
-    // SW {
-    //     encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: imm[4:0] :: 7'b0100011;
-    //     assembly:"{name(rs2)}, {imm}({name(rs1)})";
-    //     behavior: {
-    //         unsigned<XLEN> store_address = X[rs1] + (signed)imm;
-    //         MEM32[store_address] = (signed<32>)X[rs2];
-    //     }
-    // }
-    // CV_LB_ri_inc {
-    //     encoding: imm12[11:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0001011;
-    //     // assembly: {"cv.lb", "{name(rd)}, {imm12}({name(rs1)}!)"};
-    //     assembly: "{name(rd)}, {imm12}({name(rs1)}!)";
-    //     behavior: {
-    //         unsigned<XLEN> load_address = X[rs1];
-    //         signed<8> res = (signed<8>)MEM8[load_address];
-    //         if (rd != 0) X[rd] = (unsigned<XLEN>)res;
-    //         X[rs1] += (signed)imm12;
-    //     }
-    // }
-  }
 
 }
