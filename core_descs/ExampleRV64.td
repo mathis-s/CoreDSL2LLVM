@@ -1,5 +1,17 @@
 let Predicates = [HasVendorXCValu] in {
 
+let hasSideEffects = 0, mayLoad = 1, mayStore = 0, isCodeGenOnly = 1, Constraints = "" in def ADDW2_ : RVInst_ADDW2<(outs GPR:$rd), (ins GPR:$rs2, GPR:$rs1)>;
+
+def : Pat<
+	(i64 (i64 (sext (i32 (add (i32 GPR:$rs2), (i32 GPR:$rs1)))))),
+	(ADDW2_ GPR:$rs2, GPR:$rs1)>;
+
+let hasSideEffects = 0, mayLoad = 1, mayStore = 0, isCodeGenOnly = 1, Constraints = "" in def ADDW3_ : RVInst_ADDW3<(outs GPR:$rd), (ins GPR:$rs2, GPR:$rs1)>;
+
+def : Pat<
+	(i64 (i64 (sext (i32 (add (i32 GPR:$rs2), (i32 GPR:$rs1)))))),
+	(ADDW3_ GPR:$rs2, GPR:$rs1)>;
+
 let hasSideEffects = 0, mayLoad = 1, mayStore = 0, isCodeGenOnly = 1, Constraints = "" in def LB_ : RVInst_LB<(outs GPR:$rd), (ins uimm12:$imm, GPR:$rs1)>;
 
 def : Pat<

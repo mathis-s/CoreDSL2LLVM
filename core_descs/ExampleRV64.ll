@@ -1,6 +1,32 @@
 ; ModuleID = 'mod'
 source_filename = "mod"
 
+define void @implADDW2(ptr %rs2, ptr %rs1, ptr noalias %rd) {
+  %1 = getelementptr i32, ptr %rs1, i64 0
+  %.v = load i32, ptr %1, align 4
+  %2 = getelementptr i32, ptr %rs2, i64 0
+  %.v1 = load i32, ptr %2, align 4
+  %3 = add i32 %.v, %.v1
+  %4 = alloca i32, align 4
+  store i32 %3, ptr %4, align 4
+  %.v2 = load i32, ptr %4, align 4
+  %5 = sext i32 %.v2 to i64
+  store i64 %5, ptr %rd, align 8
+  ret void
+}
+
+define void @implADDW3(ptr %rs2, ptr %rs1, ptr noalias %rd) {
+  %rs1.v = load i32, ptr %rs1, align 4
+  %rs2.v = load i32, ptr %rs2, align 4
+  %1 = add i32 %rs1.v, %rs2.v
+  %2 = alloca i32, align 4
+  store i32 %1, ptr %2, align 4
+  %.v = load i32, ptr %2, align 4
+  %3 = sext i32 %.v to i64
+  store i64 %3, ptr %rd, align 8
+  ret void
+}
+
 define void @implLB(i64 %imm, ptr %rs1, ptr noalias %rd) {
   %1 = and i64 %imm, 4095
   %2 = icmp eq i64 %imm, %1

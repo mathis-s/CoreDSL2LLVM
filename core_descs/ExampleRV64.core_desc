@@ -5,7 +5,34 @@ InstructionSet XExampleRV64 extends RISCVBase {
 
     instructions {
 
-      // CHECK-RV64: Pattern for LB: (i64 (sextloadi8 (add GPR:$rs1, (i64 uimm12:$imm))))
+      // ADDW { // does not work implicitly
+      //     encoding: 7'b0000000 :: rs2[4:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0111011;
+      //     assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+      //     behavior: {
+      //         signed<32> res = (signed<32>)X[rs1] + (signed<32>)X[rs2];
+      //         X[rd] = (signed<64>)res;
+      //     }
+      // }
+      // CHECK-RV64: Pattern for ADDW2: (i64 (sext (i32 (add (i32 GPR:$rs2), (i32 GPR:$rs1)))))
+      ADDW2 {
+          encoding: 7'b0000000 :: rs2[4:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0111011;
+          assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+          behavior: {
+              signed<32> res = (signed<32>)X[rs1][31:0] + (signed<32>)X[rs2][31:0];
+              X[rd] = (signed<64>)res;
+          }
+      }
+      // CHECK-RV64-NEXT: Pattern for ADDW3: (i64 (sext (i32 (add (i32 GPR:$rs2), (i32 GPR:$rs1)))))
+      ADDW3 {
+          encoding: 7'b0000000 :: rs2[4:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0111011;
+          assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+          behavior: {
+              signed<32> res = (signed<32>)XW[rs1] + (signed<32>)XW[rs2];
+              X[rd] = (signed<64>)res;
+          }
+      }
+
+      // CHECK-RV64-NEXT: Pattern for LB: (i64 (sextloadi8 (add GPR:$rs1, (i64 uimm12:$imm))))
       LB {
           encoding: imm[11:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0000011;
           assembly:"{name(rd)}, {imm}({name(rs1)})";
