@@ -1063,21 +1063,30 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     // Immediate Operands
     assert(Cur.getOperand(1).isReg() && "expected register");
     auto Reg = Cur.getOperand(1).getReg();
-    auto [Idx, Field] = getArgInfo(MRI, Reg);
 
-    PatternArgs[Idx].In = true;
-    PatternArgs[Idx].Llt = LLT();
-    PatternArgs[Idx].ArgTypeStr =
-        makeImmTypeStr(Field->len, Field->type & CDSLInstr::SIGNED);
+    // Copying from a physical reg means this is a function argument,
+    // so a register or immediate value in the behavior function.
+    if (Reg.isPhysical()) {
+        auto [Idx, Field] = getArgInfo(MRI, Reg);
 
-    if (Field == nullptr)
-      return std::make_pair(FORMAT_IMM, nullptr);
+        PatternArgs[Idx].In = true;
+        PatternArgs[Idx].Llt = LLT();
+        PatternArgs[Idx].ArgTypeStr =
+            makeImmTypeStr(Field->len, Field->type & CDSLInstr::SIGNED);
 
-    assert(Cur.getOperand(0).isReg() && "expected register");
-    return std::make_pair(SUCCESS, std::make_unique<RegisterNode>(
-                                       MRI.getType(Cur.getOperand(0).getReg()),
-                                       Field->ident, Idx, true, 0, Field->len,
-                                       Field->type & CDSLInstr::SIGNED));
+        if (Field == nullptr)
+        return std::make_pair(FORMAT_IMM, nullptr);
+
+        assert(Cur.getOperand(0).isReg() && "expected register");
+        return std::make_pair(SUCCESS, std::make_unique<RegisterNode>(
+                                        MRI.getType(Cur.getOperand(0).getReg()),
+                                        Field->ident, Idx, true, 0, Field->len,
+                                        Field->type & CDSLInstr::SIGNED));
+    }
+
+    // Else COPY is just a pass-through.
+    auto [Err, Node] = traverseUnopOperands(MRI, Cur);
+    return std::make_pair(Err, std::move(Node));
   }
   case TargetOpcode::G_BUILD_VECTOR: {
     size_t N = Cur.getNumOperands();
