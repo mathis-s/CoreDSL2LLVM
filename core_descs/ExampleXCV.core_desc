@@ -15,7 +15,7 @@ InstructionSet XExampleCoreV extends RISCVBase {
             }
         }
 
-        // CHECK-RV32: Pattern for CV_ABS: (xor (add GPR:$rs1, (i32 (sra (i32 GPR:$rs1), (i32 (i32 31))))), (i32 (sra (i32 GPR:$rs1), (i32 (i32 31)))))
+        // CHECK-RV32-NEXT: Pattern for CV_ABS: (xor (add GPR:$rs1, (i32 (sra (i32 GPR:$rs1), (i32 (i32 31))))), (i32 (sra (i32 GPR:$rs1), (i32 (i32 31)))))
         CV_ABS {
             encoding: 7'b0101000 :: 5'b00000 :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
             assembly: "{name(rd)}, {name(rs1)}";
@@ -27,6 +27,8 @@ InstructionSet XExampleCoreV extends RISCVBase {
         }
 
         // TODO: add check
+        // CHECK-RV32-EXTEND-NEXT: Pattern for CV_ADDN: (select (i32 (setcc (i32 (i32 uimm5:$Luimm5)), (i32 (i32 0)), SETEQ)), (add GPR:$rs2, GPR:$rs1), (select (i32 (setcc (i32 (i32 uimm5:$Luimm5)), (i32 (i32 32)), SETULT)), (or (i32 (srl (i32 (add GPR:$rs2, GPR:$rs1)), (i32 (i32 uimm5:$Luimm5)))), (i32 (shl (i32 (add (add (i32 0), (i32 0)), (i32 (setcc (i32 (add GPR:$rs2, GPR:$rs1)), (i32 GPR:$rs1), SETULT)))), (i32 (sub (i32 32), (i32 uimm5:$Luimm5)))))), (i32 (srl (i32 (add (add (i32 0), (i32 0)), (i32 (setcc (i32 (add GPR:$rs2, GPR:$rs1)), (i32 GPR:$rs1), SETULT)))), (i32 (sub (i32 uimm5:$Luimm5), (i32 32)))))))
+        // CHECK-RV32-NOEXTEND-NEXT: Pattern for CV_ADDN: (i32 (sra (i32 (add GPR:$rs2, GPR:$rs1)), (i32 (i32 uimm5:$Luimm5))))
         CV_ADDN {
             encoding: 2'b00 :: Luimm5[4:0] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b1011011;
             assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}, {Luimm5}";
