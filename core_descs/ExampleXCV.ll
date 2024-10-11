@@ -4,24 +4,21 @@ source_filename = "mod"
 define void @implCV_MAC(ptr %rs2, ptr %rs1, ptr noalias %rd) {
   %rs1.v = load i32, ptr %rs1, align 4
   %rs2.v = load i32, ptr %rs2, align 4
-  %1 = sext i32 %rs1.v to i64
-  %2 = sext i32 %rs2.v to i64
-  %3 = mul i64 %1, %2
+  %1 = mul i32 %rs1.v, %rs2.v
   %rd.v = load i32, ptr %rd, align 4
-  %4 = sext i64 %3 to i128
-  %5 = sext i32 %rd.v to i128
-  %6 = add i128 %4, %5
-  %7 = alloca i128, align 8
-  store i128 %6, ptr %7, align 4
-  br i1 true, label %8, label %10
+  %2 = add i32 %1, %rd.v
+  %3 = sext i32 %2 to i128
+  %4 = alloca i128, align 8
+  store i128 %3, ptr %4, align 4
+  br i1 true, label %5, label %7
 
-8:                                                ; preds = %0
-  %.v = load i65, ptr %7, align 16
-  %9 = trunc i65 %.v to i32
-  store i32 %9, ptr %rd, align 4
-  br label %10
+5:                                                ; preds = %0
+  %.v = load i65, ptr %4, align 16
+  %6 = trunc i65 %.v to i32
+  store i32 %6, ptr %rd, align 4
+  br label %7
 
-10:                                               ; preds = %8, %0
+7:                                                ; preds = %5, %0
   ret void
 }
 
@@ -51,21 +48,17 @@ define void @implCV_ADDN(i32 %Luimm5, ptr %rs2, ptr %rs1, ptr noalias %rd) {
   %1 = and i32 %Luimm5, 31
   %2 = icmp eq i32 %Luimm5, %1
   call void @llvm.assume(i1 %2)
-  br i1 true, label %3, label %10
+  br i1 true, label %3, label %6
 
 3:                                                ; preds = %0
   %rs1.v = load i32, ptr %rs1, align 4
   %rs2.v = load i32, ptr %rs2, align 4
-  %4 = zext i32 %rs1.v to i64
-  %5 = zext i32 %rs2.v to i64
-  %6 = add i64 %4, %5
-  %7 = zext i32 %Luimm5 to i64
-  %8 = ashr i64 %6, %7
-  %9 = trunc i64 %8 to i32
-  store i32 %9, ptr %rd, align 4
-  br label %10
+  %4 = add i32 %rs1.v, %rs2.v
+  %5 = ashr i32 %4, %Luimm5
+  store i32 %5, ptr %rd, align 4
+  br label %6
 
-10:                                               ; preds = %3, %0
+6:                                                ; preds = %3, %0
   ret void
 }
 
