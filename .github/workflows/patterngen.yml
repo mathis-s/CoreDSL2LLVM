@@ -107,6 +107,11 @@ jobs:
         run: |
           build/bin/pattern-gen core_descs/${{ inputs.input_file || 'Example.core_desc' }} ${{ inputs.patterngen_args }}
 
+      - name: Test PatternGen
+        run: |
+          export PATH=$(pwd)/build/bin:$PATH
+          llvm-lit core_descs/ -v
+
       - name: Upload generated files
         uses: actions/upload-artifact@v4
         with:

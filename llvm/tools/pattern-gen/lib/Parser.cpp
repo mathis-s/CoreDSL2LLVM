@@ -890,9 +890,30 @@ Value ParseExpressionTerminal(TokenStream &ts, llvm::Function *func,
 
       int len = 0;
       if (pop_cur_if(ts, LessThan)) {
-        len = pop_cur(ts, IntLiteral).literal.value;
-        if (len == 0)
+        // TODO: share code with definition
+        switch (ts.Peek().type) {
+        case IntLiteral: {
+          len = pop_cur(ts, IntLiteral).literal.value;
+          break;
+        }
+        case Identifier: {
+          // TODO: Call ParseExpression instead?
+          auto t = ts.Pop();
+          auto iter = variables.find(t.ident.idx);
+          if (iter != variables.end()) {
+            Value val = iter->getSecond().back().val;
+            if (!llvm::isa<llvm::ConstantInt>(val.ll))
+              not_implemented(ts);
+            len = llvm::cast<llvm::ConstantInt>(val.ll)->getLimitedValue();
+          }
+          break;
+        }
+        default: {
           syntax_error(ts);
+        }
+        }
+        if (len <= 0)
+          error("invalid size", ts);
         pop_cur(ts, GreaterThan);
       }
       pop_cur(ts, RBrClose);
@@ -965,7 +986,28 @@ VarDef ParseDefinition(TokenStream &ts) {
 
   int bitSize = -1;
   if (pop_cur_if(ts, LessThan)) {
-    bitSize = pop_cur(ts, IntLiteral).literal.value;
+    // TODO: share code with cast
+    switch (ts.Peek().type) {
+    case IntLiteral: {
+      bitSize = pop_cur(ts, IntLiteral).literal.value;
+      break;
+    }
+    case Identifier: {
+      // TODO: Call ParseExpression instead?
+      auto t = ts.Pop();
+      auto iter = variables.find(t.ident.idx);
+      if (iter != variables.end()) {
+        Value val = iter->getSecond().back().val;
+        if (!llvm::isa<llvm::ConstantInt>(val.ll))
+          not_implemented(ts);
+        bitSize = llvm::cast<llvm::ConstantInt>(val.ll)->getLimitedValue();
+      }
+      break;
+    }
+    default: {
+      syntax_error(ts);
+    }
+    }
     if (bitSize <= 0)
       error("invalid size", ts);
     pop_cur(ts, GreaterThan);

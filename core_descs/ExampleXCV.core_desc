@@ -1,0 +1,45 @@
+// RUN: pattern-gen %s -O 3 --mattr=+m --riscv-xlen 32 | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-EXTEND -allow-unused-prefixes %s
+// RUN: pattern-gen %s -O 3 --no-extend --mattr=+m --riscv-xlen 32 | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-NOEXTED -allow-unused-prefixes %s
+
+InstructionSet XExampleCoreV extends RISCVBase {
+
+    instructions {
+
+        // CHECK-RV32: Pattern for CV_MAC: (add (mul GPR:$rs2, GPR:$rs1), GPR:$rd)
+        CV_MAC {
+            encoding: 7'b1001000 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
+            assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+            behavior: {
+              signed<65> result = (signed)X[rs1] * (signed)X[rs2] + (signed)X[rd];
+              if(rd != 0) X[rd] = (unsigned<32>)result;
+            }
+        }
+
+        // CHECK-RV32-NEXT: Pattern for CV_ABS: (xor (add GPR:$rs1, (i32 (sra (i32 GPR:$rs1), (i32 (i32 31))))), (i32 (sra (i32 GPR:$rs1), (i32 (i32 31)))))
+        CV_ABS {
+            encoding: 7'b0101000 :: 5'b00000 :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
+            assembly: "{name(rd)}, {name(rs1)}";
+            behavior: {
+                if (rd != 0) {
+                    X[rd] = ((signed)X[rs1] < 0) ? (-X[rs1])[32-1:0] : X[rs1];
+                }
+            }
+        }
+
+        // TODO: add check
+        // CHECK-RV32-EXTEND-NEXT: Pattern for CV_ADDN: (select (i32 (setcc (i32 (i32 uimm5:$Luimm5)), (i32 (i32 0)), SETEQ)), (add GPR:$rs2, GPR:$rs1), (select (i32 (setcc (i32 (i32 uimm5:$Luimm5)), (i32 (i32 32)), SETULT)), (or (i32 (srl (i32 (add GPR:$rs2, GPR:$rs1)), (i32 (i32 uimm5:$Luimm5)))), (i32 (shl (i32 (add (add (i32 0), (i32 0)), (i32 (setcc (i32 (add GPR:$rs2, GPR:$rs1)), (i32 GPR:$rs1), SETULT)))), (i32 (sub (i32 32), (i32 uimm5:$Luimm5)))))), (i32 (srl (i32 (add (add (i32 0), (i32 0)), (i32 (setcc (i32 (add GPR:$rs2, GPR:$rs1)), (i32 GPR:$rs1), SETULT)))), (i32 (sub (i32 uimm5:$Luimm5), (i32 32)))))))
+        // CHECK-RV32-NOEXTEND-NEXT: Pattern for CV_ADDN: (i32 (sra (i32 (add GPR:$rs2, GPR:$rs1)), (i32 (i32 uimm5:$Luimm5))))
+        CV_ADDN {
+            encoding: 2'b00 :: Luimm5[4:0] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b1011011;
+            assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}, {Luimm5}";
+            behavior: {
+                if (rd != 0) {
+                    // X[rd] = (signed)(X[rs1] + X[rs2][31: 0]) >> Luimm5;
+                    X[rd] = (signed)(X[rs1] + X[rs2]) >> Luimm5;
+                }
+            }
+        }
+
+    }
+
+}
