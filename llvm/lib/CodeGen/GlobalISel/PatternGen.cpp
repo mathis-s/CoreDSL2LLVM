@@ -155,9 +155,13 @@ std::string Errors[] = {"success",        "multiple blocks", "expected return",
                         "expected store", "load format",     "immediate format",
                         "format"};
 llvm::Statistic *ErrorStats[] = {
-    &PatternGenNumErrorMultipleBlocks, &PatternGenNumErrorFormatReturn,
-    &PatternGenNumErrorFormatStore,    &PatternGenNumErrorFormatLoad,
-    &PatternGenNumErrorFormatImm,      &PatternGenNumErrorFormat,
+    nullptr,
+    &PatternGenNumErrorMultipleBlocks,
+    &PatternGenNumErrorFormatReturn,
+    &PatternGenNumErrorFormatStore,
+    &PatternGenNumErrorFormatLoad,
+    &PatternGenNumErrorFormatImm,
+    &PatternGenNumErrorFormat,
 };
 
 static const std::unordered_map<unsigned, std::string> CmpStr = {
@@ -179,6 +183,8 @@ std::string lltToString(LLT Llt) {
            lltToString(Llt.getElementType());
   if (Llt.isScalar())
     return "i" + std::to_string(Llt.getSizeInBits());
+  if (Llt.isPointer())
+    return "iPTR";
   assert(0 && "invalid type");
   return "invalid";
 }
@@ -215,6 +221,7 @@ struct PatternNode {
     PN_Register,
     PN_Load,
     PN_Select,
+    PN_Cast
   };
 
 private:
@@ -380,6 +387,7 @@ struct BinopNode : public PatternNode {
   std::string patternString(int Indent = 0) override {
     static const std::unordered_map<int, std::string> BinopStr = {
         {TargetOpcode::G_ADD, "add"},
+        {TargetOpcode::G_PTR_ADD, "ptradd"},
         {TargetOpcode::G_SUB, "sub"},
         {TargetOpcode::G_MUL, "mul"},
         {TargetOpcode::G_UMULH, "mulhu"},
@@ -626,8 +634,7 @@ struct RegisterNode : public PatternNode {
 
   std::string patternString(int Indent = 0) override {
     std::string TypeStr = lltToString(Type);
-    bool PrintType = false;
-    // bool PrintType = true;
+    bool PrintType = Type.isPointer();
 
     if (IsImm) {
       // Immediate Operands
@@ -639,7 +646,7 @@ struct RegisterNode : public PatternNode {
     // Full-Size Register Operands
     if ((uint64_t)Size == XLen) {
       std::string Str;
-      if (Type.isScalar() && Type.getSizeInBits() == XLen)
+      if ((Type.isScalar() && Type.getSizeInBits() == XLen) || Type.isPointer())
         Str = "GPR:$" + std::string(Name);
       if (PrintType)
         return "(" + TypeStr + " " + Str + ")";
@@ -701,7 +708,8 @@ struct LoadNode : public PatternNode {
   std::unique_ptr<PatternNode> Addr;
 
   LoadNode(int Size, bool Sext, std::unique_ptr<PatternNode> Addr)
-      : PatternNode(PN_Load, LLT(), false), Size(Size), Sext(Sext), Addr(std::move(Addr)) {}
+      : PatternNode(PN_Load, LLT(), false), Size(Size), Sext(Sext),
+        Addr(std::move(Addr)) {}
 
   std::string patternString(int Indent = 0) override {
     if ((size_t)Size == XLen)
@@ -712,28 +720,57 @@ struct LoadNode : public PatternNode {
     // TODO: use AddrRegImm?
     // TODO: how about anyext?
     if (Sext)
-      return "(" + RegT + " (sextloadi" + std::to_string(Size) + " " + Addr->patternString() + "))";
-    return "(" + RegT + " (zextloadi" + std::to_string(Size) + " " + Addr->patternString() + "))";
+      return "(" + RegT + " (sextloadi" + std::to_string(Size) + " " +
+             Addr->patternString() + "))";
+    return "(" + RegT + " (zextloadi" + std::to_string(Size) + " " +
+           Addr->patternString() + "))";
     abort();
   }
 
   static bool classof(const PatternNode *p) { return p->getKind() == PN_Load; }
 };
 
-static std::pair<PatternError, std::unique_ptr<PatternNode>>
-traverse(MachineRegisterInfo &MRI, MachineInstr &Cur);
+struct CastNode : public PatternNode {
+  std::unique_ptr<PatternNode> Value;
 
-static std::pair<PatternError, std::unique_ptr<PatternNode>>
-traverseOperand(MachineRegisterInfo &MRI, MachineInstr &Cur, int Start) {
+  CastNode(LLT Type, std::unique_ptr<PatternNode> Value)
+      : PatternNode(PN_Cast, Type, false), Value(std::move(Value)) {}
+
+  std::string patternString(int Indent = 0) override {
+    auto LLTString = lltToString(Type);
+    return "(" + LLTString + " " + Value->patternString() + ")";
+  }
+
+  static bool classof(const PatternNode *p) { return p->getKind() == PN_Cast; }
+};
+
+using PatternOrError = std::pair<PatternError, std::unique_ptr<PatternNode>>;
+static PatternOrError PError(PatternErrorT Type, MachineInstr *Inst) {
+  return std::make_pair(PatternError(Type, Inst), nullptr);
+}
+static PatternOrError PError(PatternError Error) {
+  return std::make_pair(Error, nullptr);
+}
+static PatternOrError PError(PatternErrorT Type) {
+  return std::make_pair(PatternError(Type), nullptr);
+}
+static PatternOrError PPattern(std::unique_ptr<PatternNode> Pattern) {
+  return std::make_pair(PatternError(SUCCESS), std::move(Pattern));
+}
+
+static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur);
+
+static PatternOrError traverseOperand(MachineRegisterInfo &MRI,
+                                      MachineInstr &Cur, int Start) {
   assert(Cur.getOperand(1).isReg() && "expected register");
   auto *Op = MRI.getOneDef(Cur.getOperand(1).getReg());
   if (!Op)
-    return std::make_pair(FORMAT, nullptr);
+    return PError(FORMAT);
   auto [Err, Node] = traverse(MRI, *Op->getParent());
   if (Err)
-    return std::make_pair(Err, nullptr);
+    return PError(Err);
 
-  return std::make_pair(SUCCESS, std::move(Node));
+  return PPattern(std::move(Node));
 }
 
 static std::tuple<PatternError, std::unique_ptr<PatternNode>,
@@ -856,10 +893,33 @@ static CDSLInstr::Field const *getArgField(MachineRegisterInfo &MRI,
 static auto getArgInfo(MachineRegisterInfo &MRI, Register Reg) {
   return std::make_pair(getArgIdx(MRI, Reg), getArgField(MRI, Reg));
 }
+static PatternOrError traverseMemLoad(MachineRegisterInfo &MRI,
+                                      MachineInstr &Cur, int ReadSize,
+                                      MachineInstr *AddrI) {
+  if (AddrI->getOpcode() == TargetOpcode::G_INTTOPTR) {
 
-static std::pair<PatternError, std::unique_ptr<PatternNode>>
-traverseRegLoad(MachineRegisterInfo &MRI, MachineInstr &Cur, int ReadSize,
-                MachineInstr *AddrI) {
+    auto *AddrInt = MRI.getOneDef(AddrI->getOperand(1).getReg());
+    auto [Err, Node] = traverse(MRI, *AddrInt->getParent());
+    if (Err)
+      return PError(Err);
+    bool Sext = Cur.getOpcode() == TargetOpcode::G_SEXTLOAD;
+    return PPattern(
+        std::make_unique<LoadNode>(ReadSize, Sext, std::move(Node)));
+  }
+  if (AddrI->getOpcode() == TargetOpcode::G_PTR_ADD) {
+    auto [Err, Node] = traverse(MRI, *AddrI);
+    if (Err)
+      return PError(Err);
+    bool Sext = Cur.getOpcode() == TargetOpcode::G_SEXTLOAD;
+    return PPattern(
+        std::make_unique<LoadNode>(ReadSize, Sext, std::move(Node)));
+  }
+  abort();
+}
+
+static PatternOrError traverseRegLoad(MachineRegisterInfo &MRI,
+                                      MachineInstr &Cur, int ReadSize,
+                                      MachineInstr *AddrI) {
 
   int ReadOffset = 0;
 
@@ -867,28 +927,28 @@ traverseRegLoad(MachineRegisterInfo &MRI, MachineInstr &Cur, int ReadSize,
     assert(AddrI->getOperand(1).isReg());
     auto *BaseAddr = MRI.getOneDef(AddrI->getOperand(1).getReg())->getParent();
     auto *Offset = MRI.getOneDef(AddrI->getOperand(2).getReg())->getParent();
-    AddrI = BaseAddr;
 
     if (Offset->getOpcode() != TargetOpcode::G_CONSTANT)
-      return std::make_pair(PatternError(FORMAT_LOAD, Offset), nullptr);
+      return traverseMemLoad(MRI, Cur, ReadSize, AddrI);
 
+    AddrI = BaseAddr;
     ReadOffset = Offset->getOperand(1).getCImm()->getLimitedValue();
   }
   if (AddrI->getOpcode() == TargetOpcode::G_SELECT) {
     // TODO: implement this!
-    return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
+    return PError(FORMAT_LOAD, AddrI);
   }
   if (AddrI->getOpcode() != TargetOpcode::COPY)
-    return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
+    return PError(FORMAT_LOAD, AddrI);
 
   assert(Cur.getOperand(1).isReg() && "expected register");
   auto AddrLI = AddrI->getOperand(1).getReg();
   if (!MRI.isLiveIn(AddrLI) || !AddrLI.isPhysical())
-    return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
+    return PError(FORMAT_LOAD, AddrI);
 
   auto [Idx, Field] = getArgInfo(MRI, AddrLI);
   if (Field == nullptr)
-    return std::make_pair(PatternError(FORMAT_LOAD, AddrI), nullptr);
+    return PError(FORMAT_LOAD, AddrI);
 
   PatternArgs[Idx].Llt = MRI.getType(Cur.getOperand(0).getReg());
   PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(PatternArgs[Idx].Llt);
@@ -903,27 +963,11 @@ traverseRegLoad(MachineRegisterInfo &MRI, MachineInstr &Cur, int ReadSize,
   return std::make_pair(SUCCESS, std::move(Node));
 }
 
-static std::pair<PatternError, std::unique_ptr<PatternNode>>
-traverseMemLoad(MachineRegisterInfo &MRI, MachineInstr &Cur, int ReadSize,
-                MachineInstr *AddrI) {
-  assert(AddrI->getOpcode() == TargetOpcode::G_INTTOPTR);
-  auto *AddrInt = MRI.getOneDef(AddrI->getOperand(1).getReg());
-
-  auto [Err, Node] = traverse(MRI, *AddrInt->getParent());
-  if (Err)
-    return std::make_pair(Err, nullptr);
-
-  bool Sext = Cur.getOpcode() == TargetOpcode::G_SEXTLOAD;
-
-  return std::make_pair(SUCCESS,
-                        std::make_unique<LoadNode>(ReadSize, Sext, std::move(Node)));
-}
-
-static std::pair<PatternError, std::unique_ptr<PatternNode>>
-traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
+static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
   switch (Cur.getOpcode()) {
   case TargetOpcode::G_ADD:
+  case TargetOpcode::G_PTR_ADD:
   case TargetOpcode::G_SUB:
   case TargetOpcode::G_MUL:
   case TargetOpcode::G_UMULH:
@@ -1067,26 +1111,34 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     // Copying from a physical reg means this is a function argument,
     // so a register or immediate value in the behavior function.
     if (Reg.isPhysical()) {
-        auto [Idx, Field] = getArgInfo(MRI, Reg);
+      auto [Idx, Field] = getArgInfo(MRI, Reg);
 
-        PatternArgs[Idx].In = true;
-        PatternArgs[Idx].Llt = LLT();
-        PatternArgs[Idx].ArgTypeStr =
-            makeImmTypeStr(Field->len, Field->type & CDSLInstr::SIGNED);
+      PatternArgs[Idx].In = true;
+      PatternArgs[Idx].Llt = LLT();
+      PatternArgs[Idx].ArgTypeStr =
+          makeImmTypeStr(Field->len, Field->type & CDSLInstr::SIGNED);
 
-        if (Field == nullptr)
+      if (Field == nullptr)
         return std::make_pair(FORMAT_IMM, nullptr);
 
-        assert(Cur.getOperand(0).isReg() && "expected register");
-        return std::make_pair(SUCCESS, std::make_unique<RegisterNode>(
-                                        MRI.getType(Cur.getOperand(0).getReg()),
-                                        Field->ident, Idx, true, 0, Field->len,
-                                        Field->type & CDSLInstr::SIGNED));
+      assert(Cur.getOperand(0).isReg() && "expected register");
+      return std::make_pair(SUCCESS,
+                            std::make_unique<RegisterNode>(
+                                MRI.getType(Cur.getOperand(0).getReg()),
+                                Field->ident, Idx, true, 0, Field->len,
+                                Field->type & CDSLInstr::SIGNED));
     }
 
     // Else COPY is just a pass-through.
     auto [Err, Node] = traverseUnopOperands(MRI, Cur);
     return std::make_pair(Err, std::move(Node));
+  }
+  case TargetOpcode::G_INTTOPTR: {
+    auto [Err, Node] = traverseUnopOperands(MRI, Cur);
+    if (Err)
+      return PError(Err);
+
+    return PPattern(std::make_unique<CastNode>(LLT::pointer(0, XLen), std::move(Node)));
   }
   case TargetOpcode::G_BUILD_VECTOR: {
     size_t N = Cur.getNumOperands();
@@ -1150,8 +1202,7 @@ traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   return std::make_pair(PatternError(FORMAT, &Cur), nullptr);
 }
 
-static std::pair<PatternError, std::unique_ptr<PatternNode>>
-generatePattern(MachineFunction &MF) {
+static PatternOrError generatePattern(MachineFunction &MF) {
 
   if (MF.size() != 1)
     return std::make_pair(MULTIPLE_BLOCKS, nullptr);

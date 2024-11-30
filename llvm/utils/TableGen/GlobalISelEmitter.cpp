@@ -1283,10 +1283,14 @@ Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderer(
       return failedImport("Dst pattern child has multiple results");
 
     std::optional<LLTCodeGen> OpTyOrNone;
-    if (ChildTypes.front().isMachineValueType())
-      OpTyOrNone = MVTToLLT(ChildTypes.front().getMachineValueType().SimpleTy);
-    if (!OpTyOrNone)
-      return failedImport("Dst operand has an unsupported type");
+    if (ChildTypes.front().isMachineValueType() && ChildTypes.front().getMachineValueType().SimpleTy == llvm::MVT::iPTR)
+      ;
+    else {
+      if (ChildTypes.front().isMachineValueType())
+        OpTyOrNone = MVTToLLT(ChildTypes.front().getMachineValueType().SimpleTy);
+      if (!OpTyOrNone)
+        return failedImport("Dst operand has an unsupported type");
+    }
 
     if (ChildRec->isSubClassOf("Register")) {
       DstMIBuilder.addRenderer<AddRegisterRenderer>(Target, ChildRec);
