@@ -1301,6 +1301,16 @@ Error GlobalISelEmitter::importLeafNodeRenderer(
 
   if (const auto *DI = dyn_cast<DefInit>(N.getLeafValue())) {
     const Record *R = DI->getDef();
+    // TODO: port to llvm 20
+    // std::optional<LLTCodeGen> OpTyOrNone;
+    // if (ChildTypes.front().isMachineValueType() && ChildTypes.front().getMachineValueType().SimpleTy == llvm::MVT::iPTR)
+    //   ;
+    // else {
+    //   if (ChildTypes.front().isMachineValueType())
+    //     OpTyOrNone = MVTToLLT(ChildTypes.front().getMachineValueType().SimpleTy);
+    //   if (!OpTyOrNone)
+    //     return failedImport("Dst operand has an unsupported type");
+    // }
 
     if (R->isSubClassOf("Register") || R->getName() == "zero_reg") {
       MIBuilder.addRenderer<AddRegisterRenderer>(Target, R);

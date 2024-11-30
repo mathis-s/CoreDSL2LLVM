@@ -722,6 +722,15 @@ def add_p2i_to_ptradd : GICombineRule<
   (apply [{ Helper.applyCombineAddP2IToPtrAdd(*${root}, ${info}); }])
 >;
 
+// Fold (int2ptr (add C1, C2)) -> ptr_add (int2ptr C1), C2
+def int2ptr_add_to_ptradd: GICombineRule<
+  (defs root:$root),
+  (match  (G_ADD      $tmp, $x, $y),
+          (G_INTTOPTR $dst, $tmp):$root),
+  (apply  (G_INTTOPTR $tmp2, $x),
+          (G_PTR_ADD  $dst, $tmp2, $y))
+>;
+
 // Fold (ptr_add (int2ptr C1), C2) -> C1 + C2
 def const_ptradd_to_i2p: GICombineRule<
   (defs root:$root, apint_matchinfo:$info),
@@ -1988,8 +1997,8 @@ def select_combines : GICombineGroup<[select_undef_cmp, select_constant_cmp,
                                       select_to_iminmax, match_selects]>;
 
 def trivial_combines : GICombineGroup<[copy_prop, mul_to_shl, sub_to_add,
-                                       add_p2i_to_ptradd, mul_by_neg_one,
-                                       idempotent_prop]>;
+                                       add_p2i_to_ptradd, int2ptr_add_to_ptradd,
+                                       mul_by_neg_one, idempotent_prop]>;
 
 def fma_combines : GICombineGroup<[combine_fadd_fmul_to_fmad_or_fma,
   combine_fadd_fpext_fmul_to_fmad_or_fma, combine_fadd_fma_fmul_to_fmad_or_fma,

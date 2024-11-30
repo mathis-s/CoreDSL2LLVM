@@ -26,6 +26,7 @@ more aggressively directly.
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineScheduler.h"
+#include "llvm/CodeGen/RegAllocRegistry.h"
 #include "llvm/CodeGen/Register.h"
 #include "llvm/CodeGen/SelectionDAG.h"
 #include "llvm/CodeGen/SelectionDAGISel.h"
@@ -57,10 +58,12 @@ more aggressively directly.
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/Timer.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetLoweringObjectFile.h"
 #include "llvm/Target/TargetMachine.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/Scalar.h"
 #include <cctype>
 #include <ostream>
 #define DEBUG_TYPE "isel"
@@ -68,45 +71,59 @@ more aggressively directly.
 using namespace llvm;
 static codegen::RegisterCodeGenFlags CGF;
 
-class RISCVDAGToPatterns : public RISCVDAGToDAGISel {
-public:
-  RISCVDAGToPatterns(RISCVTargetMachine &TM, CodeGenOptLevel OptLevel)
-      : RISCVDAGToDAGISel(TM, OptLevel) {}
-  void PreprocessISelDAG() override {
-    RISCVDAGToDAGISel::PreprocessISelDAG();
-    // PrintPattern(*CurDAG);
-    CurDAG->clear();
-  }
-};
+static FunctionPass *useDefaultRegisterAllocator() { return nullptr; }
 
-/// addPassesToX helper drives creation and initialization of TargetPassConfig.
-static TargetPassConfig *
-addPassesToGenerateCode(LLVMTargetMachine &TM, PassManagerBase &PM,
-                        bool DisableVerify,
-                        MachineModuleInfoWrapperPass &MMIWP) {
-  // Targets may override createPassConfig to provide a target-specific
-  // subclass.
-  TargetPassConfig *PassConfig = TM.createPassConfig(PM);
-  // Set PassConfig options provided by TargetMachine.
-  PassConfig->setDisableVerify(DisableVerify);
-  PM.add(PassConfig);
-  PM.add(&MMIWP);
-
-  if (PassConfig->addISelPasses())
-    return nullptr;
-  PassConfig->addMachinePasses();
-  PassConfig->setInitialized();
-  return PassConfig;
-}
+static bool EnableRedundantCopyElimination = true;
+static auto EnableGlobalMerge = cl::BOU_UNSET;
+static bool EnableMachineCombiner = true;
+static bool EnableRISCVCopyPropagation = true;
+static bool EnableRISCVDeadRegisterElimination = true;
+static bool EnableSinkFold = true;
+static bool EnableLoopDataPrefetch = true;
+static bool EnableMISchedLoadClustering = false;
+static llvm::once_flag InitializeDefaultRVVRegisterAllocatorFlag;
+static auto RVVRegAlloc = useDefaultRegisterAllocator;
+static bool EnableVSETVLIAfterRVVRegAlloc = true;
 
 namespace {
-class RISCVPatternPassConfig : public TargetPassConfig {
+
+class RVVRegisterRegAlloc : public RegisterRegAllocBase<RVVRegisterRegAlloc> {
 public:
-  RISCVPatternPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
+  RVVRegisterRegAlloc(const char *N, const char *D, FunctionPassCtor C)
+      : RegisterRegAllocBase(N, D, C) {}
+};
+
+static bool onlyAllocateRVVReg(const TargetRegisterInfo &TRI,
+                               const MachineRegisterInfo &MRI,
+                               const Register Reg) {
+  const TargetRegisterClass *RC = MRI.getRegClass(Reg);
+  return RISCVRegisterInfo::isRVVRegClass(RC);
+}
+
+static void initializeDefaultRVVRegisterAllocatorOnce() {
+  RegisterRegAlloc::FunctionPassCtor Ctor = RVVRegisterRegAlloc::getDefault();
+
+  if (!Ctor) {
+    Ctor = RVVRegAlloc;
+    RVVRegisterRegAlloc::setDefault(RVVRegAlloc);
+  }
+}
+
+static FunctionPass *createGreedyRVVRegisterAllocator() {
+  return createGreedyRegisterAllocator(onlyAllocateRVVReg);
+}
+
+static FunctionPass *createFastRVVRegisterAllocator() {
+  return createFastRegisterAllocator(onlyAllocateRVVReg, false);
+}
+
+class RISCVPassConfig : public TargetPassConfig {
+public:
+  RISCVPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
       : TargetPassConfig(TM, PM) {
     if (TM.getOptLevel() != CodeGenOptLevel::None)
       substitutePass(&PostRASchedulerID, &PostMachineSchedulerID);
-    setEnableSinkAndFold(false);
+    setEnableSinkAndFold(EnableSinkFold);
   }
 
   RISCVTargetMachine &getRISCVTargetMachine() const {
@@ -115,77 +132,98 @@ public:
 
   ScheduleDAGInstrs *
   createMachineScheduler(MachineSchedContext *C) const override {
-    const RISCVSubtarget &ST = C->MF->getSubtarget<RISCVSubtarget>();
     ScheduleDAGMILive *DAG = nullptr;
-    if (false) {
+    if (EnableMISchedLoadClustering) {
       DAG = createGenericSchedLive(C);
       DAG->addMutation(createLoadClusterDAGMutation(
           DAG->TII, DAG->TRI, /*ReorderWhileClustering=*/true));
     }
-    const auto &MacroFusions = ST.getMacroFusions();
-    if (!MacroFusions.empty()) {
-      DAG = DAG ? DAG : createGenericSchedLive(C);
-      DAG->addMutation(createMacroFusionDAGMutation(MacroFusions));
-    }
     return DAG;
-  }
-
-  ScheduleDAGInstrs *
-  createPostMachineScheduler(MachineSchedContext *C) const override {
-    const RISCVSubtarget &ST = C->MF->getSubtarget<RISCVSubtarget>();
-    const auto &MacroFusions = ST.getMacroFusions();
-    if (!MacroFusions.empty()) {
-      ScheduleDAGMI *DAG = createGenericSchedPostRA(C);
-      DAG->addMutation(createMacroFusionDAGMutation(MacroFusions));
-      return DAG;
-    }
-    return nullptr;
   }
 
   void addIRPasses() override;
   bool addPreISel() override;
+  void addCodeGenPrepare() override;
   bool addInstSelector() override;
   bool addIRTranslator() override;
   void addPreLegalizeMachineIR() override;
   bool addLegalizeMachineIR() override;
+  void addPreRegBankSelect() override;
   bool addRegBankSelect() override;
   bool addGlobalInstructionSelect() override;
   void addPreEmitPass() override;
   void addPreEmitPass2() override;
   void addPreSched2() override;
   void addMachineSSAOptimization() override;
+  FunctionPass *createRVVRegAllocPass(bool Optimized);
+  bool addRegAssignAndRewriteFast() override;
+  bool addRegAssignAndRewriteOptimized() override;
   void addPreRegAlloc() override;
   void addPostRegAlloc() override;
-
-private:
-  bool EnableGlobalMerge = true;
-  bool EnableRedundantCopyElimination = true;
-  bool EnableMachineCombiner = true;
+  void addFastRegAlloc() override;
 };
 } // namespace
 
-void RISCVPatternPassConfig::addIRPasses() {
+FunctionPass *RISCVPassConfig::createRVVRegAllocPass(bool Optimized) {
+  // Initialize the global default.
+  llvm::call_once(InitializeDefaultRVVRegisterAllocatorFlag,
+                  initializeDefaultRVVRegisterAllocatorOnce);
+
+  RegisterRegAlloc::FunctionPassCtor Ctor = RVVRegisterRegAlloc::getDefault();
+  if (Ctor != useDefaultRegisterAllocator)
+    return Ctor();
+
+  if (Optimized)
+    return createGreedyRVVRegisterAllocator();
+
+  return createFastRVVRegisterAllocator();
+}
+
+bool RISCVPassConfig::addRegAssignAndRewriteFast() {
+  addPass(createRVVRegAllocPass(false));
+  if (EnableVSETVLIAfterRVVRegAlloc)
+    addPass(createRISCVInsertVSETVLIPass());
+  if (TM->getOptLevel() != CodeGenOptLevel::None &&
+      EnableRISCVDeadRegisterElimination)
+    addPass(createRISCVDeadRegisterDefinitionsPass());
+  return TargetPassConfig::addRegAssignAndRewriteFast();
+}
+
+bool RISCVPassConfig::addRegAssignAndRewriteOptimized() {
+  addPass(createRVVRegAllocPass(true));
+  addPass(createVirtRegRewriter(false));
+  if (EnableVSETVLIAfterRVVRegAlloc)
+    addPass(createRISCVInsertVSETVLIPass());
+  if (TM->getOptLevel() != CodeGenOptLevel::None &&
+      EnableRISCVDeadRegisterElimination)
+    addPass(createRISCVDeadRegisterDefinitionsPass());
+  return TargetPassConfig::addRegAssignAndRewriteOptimized();
+}
+
+void RISCVPassConfig::addIRPasses() {
   addPass(createAtomicExpandLegacyPass());
 
-  if (getOptLevel() != CodeGenOptLevel::None)
-    addPass(createRISCVGatherScatterLoweringPass());
+  if (getOptLevel() != CodeGenOptLevel::None) {
+    if (EnableLoopDataPrefetch)
+      addPass(createLoopDataPrefetchPass());
 
-  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createRISCVGatherScatterLoweringPass());
+    addPass(createInterleavedAccessPass());
     addPass(createRISCVCodeGenPreparePass());
+  }
 
   TargetPassConfig::addIRPasses();
 }
 
-bool RISCVPatternPassConfig::addPreISel() {
+bool RISCVPassConfig::addPreISel() {
   if (TM->getOptLevel() != CodeGenOptLevel::None) {
     // Add a barrier before instruction selection so that we will not get
     // deleted block address after enabling default outlining. See D99707 for
     // more details.
     addPass(createBarrierNoopPass());
-    // addPass(createHardwareLoopsPass());
   }
 
-  if (EnableGlobalMerge) {
+  if (EnableGlobalMerge == cl::BOU_TRUE) {
     addPass(createGlobalMergePass(TM, /* MaxOffset */ 2047,
                                   /* OnlyOptimizeForSize */ false,
                                   /* MergeExternalByDefault */ true));
@@ -194,24 +232,24 @@ bool RISCVPatternPassConfig::addPreISel() {
   return false;
 }
 
-// FunctionPass *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
-SelectionDAGISel *createRISCVPatternsISelDag(RISCVTargetMachine &TM,
-                                             CodeGenOptLevel OptLevel) {
-  return new RISCVDAGToPatterns(TM, OptLevel);
+void RISCVPassConfig::addCodeGenPrepare() {
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createTypePromotionLegacyPass());
+  TargetPassConfig::addCodeGenPrepare();
 }
 
-bool RISCVPatternPassConfig::addInstSelector() {
-  addPass(createRISCVPatternsISelDag(getRISCVTargetMachine(), getOptLevel()));
+bool RISCVPassConfig::addInstSelector() {
+  addPass(createRISCVISelDag(getRISCVTargetMachine(), getOptLevel()));
 
   return false;
 }
 
-bool RISCVPatternPassConfig::addIRTranslator() {
+bool RISCVPassConfig::addIRTranslator() {
   addPass(new IRTranslator(getOptLevel()));
   return false;
 }
 
-void RISCVPatternPassConfig::addPreLegalizeMachineIR() {
+void RISCVPassConfig::addPreLegalizeMachineIR() {
   if (getOptLevel() == CodeGenOptLevel::None) {
     addPass(createRISCVO0PreLegalizerCombiner());
   } else {
@@ -219,158 +257,132 @@ void RISCVPatternPassConfig::addPreLegalizeMachineIR() {
   }
 }
 
-bool RISCVPatternPassConfig::addLegalizeMachineIR() {
+bool RISCVPassConfig::addLegalizeMachineIR() {
   addPass(new Legalizer());
   return false;
 }
 
-bool RISCVPatternPassConfig::addRegBankSelect() {
+void RISCVPassConfig::addPreRegBankSelect() {
+  if (getOptLevel() != CodeGenOptLevel::None)
+    addPass(createRISCVPostLegalizerCombiner());
+}
+
+bool RISCVPassConfig::addRegBankSelect() {
   addPass(new RegBankSelect());
   return false;
 }
 
-bool RISCVPatternPassConfig::addGlobalInstructionSelect() {
-  addPass(new PatternGen());
+bool RISCVPassConfig::addGlobalInstructionSelect() {
   addPass(new InstructionSelect(getOptLevel()));
   return false;
 }
 
-void RISCVPatternPassConfig::addPreSched2() {}
+void RISCVPassConfig::addPreSched2() {
+  addPass(createRISCVPostRAExpandPseudoPass());
 
-void RISCVPatternPassConfig::addPreEmitPass() {
+  // Emit KCFI checks for indirect calls.
+  addPass(createKCFIPass());
+}
+
+void RISCVPassConfig::addPreEmitPass() {
+  // TODO: It would potentially be better to schedule copy propagation after
+  // expanding pseudos (in addPreEmitPass2). However, performing copy
+  // propagation after the machine outliner (which runs after addPreEmitPass)
+  // currently leads to incorrect code-gen, where copies to registers within
+  // outlined functions are removed erroneously.
+  if (TM->getOptLevel() >= CodeGenOptLevel::Default &&
+      EnableRISCVCopyPropagation)
+    addPass(createMachineCopyPropagationPass(true));
   addPass(&BranchRelaxationPassID);
   addPass(createRISCVMakeCompressibleOptPass());
 }
 
-void RISCVPatternPassConfig::addPreEmitPass2() {
+void RISCVPassConfig::addPreEmitPass2() {
+  if (TM->getOptLevel() != CodeGenOptLevel::None) {
+    addPass(createRISCVMoveMergePass());
+    // Schedule PushPop Optimization before expansion of Pseudo instruction,
+    // ensuring return instruction is detected correctly.
+    addPass(createRISCVPushPopOptimizationPass());
+  }
   addPass(createRISCVExpandPseudoPass());
+
   // Schedule the expansion of AMOs at the last possible moment, avoiding the
   // possibility for other passes to break the requirements for forward
   // progress in the LR/SC block.
   addPass(createRISCVExpandAtomicPseudoPass());
-  if (TM->getOptLevel() != CodeGenOptLevel::None) {
-    ; // addPass(createRISCVExpandCoreVHwlpPseudoPass());
-  }
+
+  // KCFI indirect call checks are lowered to a bundle.
+  addPass(createUnpackMachineBundles([&](const MachineFunction &MF) {
+    return MF.getFunction().getParent()->getModuleFlag("kcfi");
+  }));
 }
 
-void RISCVPatternPassConfig::addMachineSSAOptimization() {
+void RISCVPassConfig::addMachineSSAOptimization() {
+  addPass(createRISCVVectorPeepholePass());
+
   TargetPassConfig::addMachineSSAOptimization();
+
   if (EnableMachineCombiner)
     addPass(&MachineCombinerID);
 
-  // if (TM->getTargetTriple().getArch() == Triple::riscv64)
-  //     addPass(createRISCVSExtWRemovalPass());
+  if (TM->getTargetTriple().isRISCV64()) {
+    addPass(createRISCVOptWInstrsPass());
+  }
 }
 
-void RISCVPatternPassConfig::addPreRegAlloc() {
+void RISCVPassConfig::addPreRegAlloc() {
   addPass(createRISCVPreRAExpandPseudoPass());
   if (TM->getOptLevel() != CodeGenOptLevel::None)
     addPass(createRISCVMergeBaseOffsetOptPass());
-  addPass(createRISCVInsertVSETVLIPass());
-  // addPass(createRISCVCoreVHwlpBlocksPass());
+
+  addPass(createRISCVInsertReadWriteCSRPass());
+  addPass(createRISCVInsertWriteVXRMPass());
+
+  // Run RISCVInsertVSETVLI after PHI elimination. On O1 and above do it after
+  // register coalescing so needVSETVLIPHI doesn't need to look through COPYs.
+  if (!EnableVSETVLIAfterRVVRegAlloc) {
+    if (TM->getOptLevel() == CodeGenOptLevel::None)
+      insertPass(&PHIEliminationID, &RISCVInsertVSETVLIID);
+    else
+      insertPass(&RegisterCoalescerID, &RISCVInsertVSETVLIID);
+  }
 }
 
-void RISCVPatternPassConfig::addPostRegAlloc() {
+void RISCVPassConfig::addFastRegAlloc() {
+  addPass(&InitUndefID);
+  TargetPassConfig::addFastRegAlloc();
+}
+
+void RISCVPassConfig::addPostRegAlloc() {
   if (TM->getOptLevel() != CodeGenOptLevel::None &&
       EnableRedundantCopyElimination)
     addPass(createRISCVRedundantCopyEliminationPass());
 }
 
-class RISCVPatternTargetMachine : public RISCVTargetMachine {
+class RISCVPatternPassConfig : public RISCVPassConfig {
 public:
-  bool addPassesToEmitFile(PassManagerBase &PM, raw_pwrite_stream &Out,
-                           raw_pwrite_stream *DwoOut, CodeGenFileType FileType,
-                           bool DisableVerify,
-                           MachineModuleInfoWrapperPass *MMIWP) override {
-    // Add common CodeGen passes.
-    if (!MMIWP)
-      MMIWP = new MachineModuleInfoWrapperPass(this);
-    TargetPassConfig *PassConfig =
-        addPassesToGenerateCode(*this, PM, DisableVerify, *MMIWP);
-    if (!PassConfig)
-      return true;
+  RISCVPatternPassConfig(RISCVTargetMachine &TM, PassManagerBase &PM)
+      : RISCVPassConfig(TM, PM) {}
 
-    if (TargetPassConfig::willCompleteCodeGenPipeline()) {
-      if (addAsmPrinter(PM, Out, DwoOut, FileType,
-                        MMIWP->getMMI().getContext()))
-        return true;
-    } else {
-      // MIR printing is redundant with -filetype=null.
-      if (FileType != CodeGenFileType::Null)
-        PM.add(createPrintMIRPass(Out));
-    }
-
-    PM.add(createFreeMachineFunctionPass());
-    return false;
+  bool addGlobalInstructionSelect() override {
+    addPass(new PatternGen());
+    return this->RISCVPassConfig::addGlobalInstructionSelect();
   }
+};
+
+class RISCVPatternsTargetMachine : public RISCVTargetMachine {
+public:
+  RISCVPatternsTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
+                             StringRef FS, const TargetOptions &Options,
+                             std::optional<Reloc::Model> RM,
+                             std::optional<CodeModel::Model> CM,
+                             CodeGenOptLevel OL, bool JIT)
+      : RISCVTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL, JIT) {}
 
   TargetPassConfig *createPassConfig(PassManagerBase &PM) override {
     return new RISCVPatternPassConfig(*this, PM);
   }
-
-public:
-  RISCVPatternTargetMachine(const Target &T, const Triple &TT, StringRef CPU,
-                            StringRef FS, const TargetOptions &Options,
-                            std::optional<Reloc::Model> RM,
-                            std::optional<CodeModel::Model> CM,
-                            CodeGenOptLevel OL, bool JIT)
-      : RISCVTargetMachine(T, TT, CPU, FS, Options, RM, CM, OL, JIT) {}
 };
-
-/*namespace {
-
-void addOptPasses(
-  llvm::legacy::PassManagerBase &passes,
-  llvm::legacy::FunctionPassManager &fnPasses,
-  llvm::TargetMachine *machine
-) {
-  llvm::PassManagerBuilder builder;
-  builder.OptLevel = 3;
-  builder.SizeLevel = 0;
-  builder.Inliner = nullptr; //llvm::createFunctionInliningPass(3, 0, false);
-  builder.LoopVectorize = true;
-  builder.SLPVectorize = true;
-
-  builder.populateFunctionPassManager(fnPasses);
-  builder.populateModulePassManager(passes);
-}
-
-void addLinkPasses(llvm::legacy::PassManagerBase &passes) {
-  llvm::PassManagerBuilder builder;
-  builder.VerifyInput = true;
-  builder.Inliner = nullptr;//llvm::createFunctionInliningPass(3, 0, false);
-}
-
-}
-
-//
-https://stackoverflow.com/questions/53738883/run-default-optimization-pipeline-using-modern-llvm
-void optimizeModule(llvm::TargetMachine* machine, llvm::Module* module)
-{
-    module->setTargetTriple(machine->getTargetTriple().str());
-    module->setDataLayout(machine->createDataLayout());
-
-    llvm::legacy::PassManager passes;
-    passes.add(new
-llvm::TargetLibraryInfoWrapperPass(machine->getTargetTriple()));
-    passes.add(llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
-
-    llvm::legacy::FunctionPassManager fnPasses(module);
-    fnPasses.add(llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
-
-    addOptPasses(passes, fnPasses, machine);
-    addLinkPasses(passes);
-
-    fnPasses.doInitialization();
-    for (llvm::Function& func : *module)
-    {
-        fnPasses.run(func);
-    }
-    fnPasses.doFinalization();
-
-    passes.add(llvm::createVerifierPass());
-    passes.run(*module);
-}*/
 
 void optimizeModule(llvm::TargetMachine *Machine, llvm::Module *Mod,
                     llvm::CodeGenOptLevel OptLevel) {
@@ -408,15 +420,49 @@ void optimizeModule(llvm::TargetMachine *Machine, llvm::Module *Mod,
 }
 
 static void setOptions() {
-  const char *Args[] = {"", "--slp-threshold=-3", "--global-isel",
-                        "--global-isel-abort=1"};
+  const char *Args[] = {"", "--global-isel", "--global-isel-abort=1"};
   cl::ParseCommandLineOptions(sizeof(Args) / sizeof(Args[0]), Args);
 }
 
-// Adapted from LLVM llc
+std::unique_ptr<TargetMachine> getTargetMachine(bool Is64Bit,
+                                                std::string Mattr) {
+  setOptions();
+  SMDiagnostic Err;
+  Triple TheTriple((Is64Bit ? "riscv64" : "riscv32"), "unknown", "linux",
+                   "gnu");
+
+  TargetOptions Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
+  std::string CPUStr = codegen::getCPUStr(),
+              FeaturesStr = codegen::getFeaturesStr() + Mattr;
+
+  auto MAttrs = codegen::getMAttrs();
+
+  CodeGenOptLevel OLvl = CodeGenOptLevel::Aggressive;
+  Options.EnableGlobalISel = true;
+
+  std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
+  std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
+
+  const Target *TheTarget = nullptr;
+  std::unique_ptr<TargetMachine> Target;
+
+  // Get the target specific parser.
+  std::string Error;
+  TheTarget =
+      TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, Error);
+  assert(TheTarget);
+
+  Target = std::make_unique<RISCVPatternsTargetMachine>(
+      *TheTarget, TheTriple, CPUStr, FeaturesStr, Options, RM, CM, OLvl, false);
+  // Target = std::unique_ptr<TargetMachine>(TheTarget->createTargetMachine(
+  //     TheTriple.getTriple(), CPUStr, FeaturesStr, Options, RM, CM, OLvl));
+  assert(Target && "Could not allocate target machine!");
+
+  return Target;
+}
+
 int runOptPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr,
                    llvm::CodeGenOptLevel OptLevel, std::ostream &IrOut) {
-  setOptions();
 
   InitializeAllTargets();
   InitializeAllTargetMCs();
@@ -428,6 +474,7 @@ int runOptPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr,
   initializeCodeGen(*Registry);
   initializeLoopStrengthReducePass(*Registry);
   initializeLowerIntrinsicsPass(*Registry);
+  initializePostInlineEntryExitInstrumenterPass(*Registry);
   initializeUnreachableBlockElimLegacyPassPass(*Registry);
   initializeConstantHoistingLegacyPassPass(*Registry);
   initializeScalarOpts(*Registry);
@@ -435,42 +482,21 @@ int runOptPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr,
   initializeScalarizeMaskedMemIntrinLegacyPassPass(*Registry);
   initializeExpandReductionsPass(*Registry);
   initializeExpandVectorPredicationPass(*Registry);
-  // initializeHardwareLoopsPass(*Registry);
+  initializeHardwareLoopsLegacyPass(*Registry);
   initializeTransformUtils(*Registry);
   initializeReplaceWithVeclibLegacyPass(*Registry);
   initializeTLSVariableHoistLegacyPassPass(*Registry);
 
+  // Initialize debugging passes.
+  initializeScavengerTestPass(*Registry);
+
   // Load the module to be compiled...
   // SMDiagnostic Err;
-  Triple TheTriple((Is64Bit ? "riscv64" : "riscv32"), "unknown", "linux",
-                   "gnu");
-  codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
-  std::string CPUStr = codegen::getCPUStr(),
-              FeaturesStr = codegen::getFeaturesStr() + Mattr;
+  auto Target = getTargetMachine(Is64Bit, Mattr);
 
-  TargetOptions Options;
-  Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
-
-  std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
-  std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
-
-  M->setTargetTriple(Is64Bit ? "riscv64-unknown-linux-gnu"
-                             : "riscv32-unknown-linux-gnu");
-
-  std::string Error;
-  const class Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, Error);
-
-  TargetMachine *Target = new RISCVPatternTargetMachine(
-      *TheTarget, TheTriple, CPUStr, FeaturesStr, Options, RM, CM,
-      llvm::CodeGenOptLevel::Aggressive, false);
-  // TheTarget->createTargetMachine(TheTriple.getTriple(), CPUStr, FeaturesStr,
-  // Options, RM, CM,
-  //                                llvm::CodeGenOpt::Aggressive);
-  // llvm::DebugFlag = true;
   M->setDataLayout(Target->createDataLayout().getStringRepresentation());
-  // llvm::outs() << *M << "\n";
-  optimizeModule(Target, M, OptLevel);
+
+  optimizeModule(Target.get(), M, OptLevel);
   {
     std::string ModuleStr;
     {
@@ -479,68 +505,77 @@ int runOptPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr,
     }
     IrOut << ModuleStr;
   }
-  // llvm::outs() << *M << "\n";
-  //  llvm::DebugFlag = false;
-
   return 0;
 }
 
-// Adapted from LLVM llc
 int runPatternGenPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr) {
-  setOptions();
 
-  // Load the module to be compiled...
-  // SMDiagnostic Err;
-  Triple TheTriple((Is64Bit ? "riscv64" : "riscv32"), "unknown", "linux",
-                   "gnu");
-  codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
-  std::string CPUStr = codegen::getCPUStr(),
-              FeaturesStr = codegen::getFeaturesStr() + Mattr;
+  auto Target = getTargetMachine(Is64Bit, Mattr);
 
-  TargetOptions Options;
-  Options = codegen::InitTargetOptionsFromCodeGenFlags(TheTriple);
+  if (codegen::getFloatABIForCalls() != FloatABI::Default)
+    Target->Options.FloatABIType = codegen::getFloatABIForCalls();
 
-  std::optional<Reloc::Model> RM = codegen::getExplicitRelocModel();
-  std::optional<CodeModel::Model> CM = codegen::getExplicitCodeModel();
+  std::unique_ptr<MIRParser> MIR;
 
-  M->setTargetTriple(Is64Bit ? "riscv64-unknown-linux-gnu"
-                             : "riscv32-unknown-linux-gnu");
+  // Figure out where we are going to send the output.
+  // std::unique_ptr<ToolOutputFile> Out = GetOutputStream(TheTarget->getName(),
+  // TheTriple.getOS(), "pattern-gen"); if (!Out) return 1;
 
-  std::string Error;
-  const class Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(codegen::getMArch(), TheTriple, Error);
+  // Ensure the filename is passed down to CodeViewDebug.
+  // Target->Options.ObjectFilenameForDebug = Out->outputFilename();
 
-  TargetMachine *Target = new RISCVPatternTargetMachine(
-      *TheTarget, TheTriple, CPUStr, FeaturesStr, Options, RM, CM,
-      llvm::CodeGenOptLevel::Aggressive, false);
-  M->setDataLayout(Target->createDataLayout().getStringRepresentation());
-
-  static_assert(sizeof(RISCVTargetMachine) ==
-                sizeof(RISCVPatternTargetMachine));
-  Target = static_cast<RISCVPatternTargetMachine *>(Target);
-
-  legacy::PassManager PM;
+  // Add an appropriate TargetLibraryInfo pass for the module's triple.
   TargetLibraryInfoImpl TLII(Triple(M->getTargetTriple()));
+
+  // Verify module immediately to catch problems before doInitialization() is
+  // called on any passes.
+  assert(!verifyModule(*M, &errs()));
+
+  // Override function attributes based on CPUStr, FeaturesStr, and command line
+  // flags.
+  codegen::setFunctionAttributes(Target->getTargetCPU(),
+                                 Target->getTargetFeatureString(), *M);
+
+  // if (EnableNewPassManager || !PassPipeline.empty()) {
+  //   return compileModuleWithNewPM(argv[0], std::move(M), std::move(MIR),
+  //                                 std::move(Target), std::move(Out),
+  //                                 std::move(DwoOut), Context, TLII, NoVerify,
+  //                                 PassPipeline, codegen::getFileType());
+  // }
+
+  // Build up all of the passes that we want to do to the module.
+  legacy::PassManager PM;
   PM.add(new TargetLibraryInfoWrapperPass(TLII));
 
-  codegen::setFunctionAttributes(CPUStr, FeaturesStr, *M);
+  {
+    SmallVector<char> Out;
+    raw_svector_ostream SVOS{Out};
+    raw_pwrite_stream *OS = &SVOS;
 
-  LLVMTargetMachine &LLVMTM = static_cast<LLVMTargetMachine &>(*Target);
-  MachineModuleInfoWrapperPass *MMIWP =
-      new MachineModuleInfoWrapperPass(&LLVMTM);
+    LLVMTargetMachine &LLVMTM = static_cast<LLVMTargetMachine &>(*Target);
+    MachineModuleInfoWrapperPass *MMIWP =
+        new MachineModuleInfoWrapperPass(&LLVMTM);
 
-  bool NoVerify = false;
+    // Construct a custom pass pipeline that starts after instruction
+    // selection.
+    if (Target->addPassesToEmitFile(PM, *OS, nullptr, codegen::getFileType(),
+                                    false, MMIWP)) {
+      assert(0 && "target does not support generation of this file type");
+    }
 
-  static llvm::raw_null_ostream NullStream{};
-  if (Target->addPassesToEmitFile(PM, NullStream, nullptr,
-                                  codegen::getFileType(), NoVerify, MMIWP)) {
-    return -1;
+    const_cast<TargetLoweringObjectFile *>(LLVMTM.getObjFileLowering())
+        ->Initialize(MMIWP->getMMI().getContext(), *Target);
+    if (MIR) {
+      assert(MMIWP && "Forgot to create MMIWP?");
+      if (MIR->parseMachineFunctions(*M, MMIWP->getMMI()))
+        return 1;
+    }
+
+    // Before executing passes, print the final values of the LLVM options.
+    cl::PrintOptionValues();
+
+    PM.run(*M);
   }
-
-  const_cast<TargetLoweringObjectFile *>(LLVMTM.getObjFileLowering())
-      ->Initialize(MMIWP->getMMI().getContext(), *Target);
-
-  PM.run(*M);
 
   return 0;
 }
