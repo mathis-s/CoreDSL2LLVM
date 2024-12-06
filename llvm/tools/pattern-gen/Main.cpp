@@ -61,7 +61,7 @@ static cl::opt<bool> NoExtend(
     cl::cat(ToolOptions));
 
 static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"),
-                         cl::init(32));
+                         cl::init(32), cl::cat(ToolOptions));
 
 // Determine optimization level.
 static cl::opt<char>
