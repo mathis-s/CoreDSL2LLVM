@@ -1,0 +1,11 @@
+
+LDR {
+    encoding: 2'b0 :: imm[4:0] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
+    assembly:"{name(rd)}, {imm} {name(rs2)}({name(rs1)})";
+    behavior: {
+        unsigned<XLEN> load_address = X[rs1] + (X[rs2] << imm);
+        signed<64> res = (signed<64>)MEM64[load_address];
+        if ((rd) != 0) X[rd] = (unsigned<XLEN>)res;
+    }
+}
+
