@@ -143,5 +143,61 @@ define void @implLHU(i32 %imm, ptr %rs1, ptr noalias %rd) {
   ret void
 }
 
+define void @implSB(i32 %imm, ptr %rs2, ptr %rs1) {
+  %1 = and i32 %imm, 4095
+  %2 = icmp eq i32 %imm, %1
+  call void @llvm.assume(i1 %2)
+  %rs1.v = load i32, ptr %rs1, align 4
+  %3 = zext i32 %rs1.v to i64
+  %4 = sext i32 %imm to i64
+  %5 = add i64 %3, %4
+  %6 = trunc i64 %5 to i32
+  %7 = alloca i32, align 4
+  store i32 %6, ptr %7, align 4
+  %.v = load i32, ptr %7, align 4
+  %8 = inttoptr i32 %.v to ptr
+  %rs2.v = load i32, ptr %rs2, align 4
+  %9 = trunc i32 %rs2.v to i8
+  store i8 %9, ptr %8, align 1
+  ret void
+}
+
+define void @implSH(i32 %imm, ptr %rs2, ptr %rs1) {
+  %1 = and i32 %imm, 4095
+  %2 = icmp eq i32 %imm, %1
+  call void @llvm.assume(i1 %2)
+  %rs1.v = load i32, ptr %rs1, align 4
+  %3 = zext i32 %rs1.v to i64
+  %4 = sext i32 %imm to i64
+  %5 = add i64 %3, %4
+  %6 = trunc i64 %5 to i32
+  %7 = alloca i32, align 4
+  store i32 %6, ptr %7, align 4
+  %.v = load i32, ptr %7, align 4
+  %8 = inttoptr i32 %.v to ptr
+  %rs2.v = load i32, ptr %rs2, align 4
+  %9 = trunc i32 %rs2.v to i16
+  store i16 %9, ptr %8, align 2
+  ret void
+}
+
+define void @implSW(i32 %imm, ptr %rs2, ptr %rs1) {
+  %1 = and i32 %imm, 4095
+  %2 = icmp eq i32 %imm, %1
+  call void @llvm.assume(i1 %2)
+  %rs1.v = load i32, ptr %rs1, align 4
+  %3 = zext i32 %rs1.v to i64
+  %4 = sext i32 %imm to i64
+  %5 = add i64 %3, %4
+  %6 = trunc i64 %5 to i32
+  %7 = alloca i32, align 4
+  store i32 %6, ptr %7, align 4
+  %.v = load i32, ptr %7, align 4
+  %8 = inttoptr i32 %.v to ptr
+  %rs2.v = load i32, ptr %rs2, align 4
+  store i32 %rs2.v, ptr %8, align 4
+  ret void
+}
+
 attributes #0 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
