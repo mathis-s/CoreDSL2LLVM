@@ -26,3 +26,11 @@ ADD3 {
         X[rd] += X[rs1] + X[rs2];
     }
 }
+
+LOADMAC {
+    encoding: 7'd40 :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
+    assembly:"{name(rd)}, ({name(rs2)}), ({name(rs1)})";
+    behavior: {
+        X[rd] += MEMX[X[rs1]] * MEMX[X[rs2]];
+    }
+}

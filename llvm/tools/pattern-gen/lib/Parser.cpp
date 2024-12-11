@@ -782,7 +782,7 @@ static auto find_var(uint32_t identIdx) {
 Value ParseExpressionTerminal(TokenStream &ts, llvm::Function *func,
                               llvm::IRBuilder<> &build) {
   auto &ctx = func->getContext();
-  const auto memTypes = {"MEM8", "MEM16", "MEM32", "MEM64"};
+  const auto memTypes = {"MEM8", "MEM16", "MEM32", "MEM64", "MEMX"};
   switch (ts.Peek().type) {
   case Identifier: {
     auto t = ts.Pop();
@@ -800,7 +800,10 @@ Value ParseExpressionTerminal(TokenStream &ts, llvm::Function *func,
       auto *addrPtr =
           build.CreateIntToPtr(addr.ll, llvm::PointerType::get(ctx, 0));
 
-      return Value{addrPtr, 8 << (memIt - memTypes.begin()), false};
+      int len = 8 << (memIt - memTypes.begin());
+      if (memIt == memTypes.end() - 1)
+        len = xlen;
+      return Value{addrPtr, len, false};
     }
     if (t.ident.str == "X" || t.ident.str == "XW") {
       bool sizeIs32 = t.ident.str == "XW";
@@ -1353,6 +1356,7 @@ void ParseArguments(TokenStream &ts, CDSLInstr &instr) {
         std::regex_replace(str, std::regex("\\{" + fstr + "\\}"), "$" + fstr);
     if (strNew != str)
       f.type = (CDSLInstr::FieldType)(f.type | CDSLInstr::FieldType::IMM);
+    str = strNew;
   }
 
   instr.argString = str;
