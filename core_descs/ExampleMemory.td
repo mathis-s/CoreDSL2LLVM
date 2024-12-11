@@ -18,4 +18,10 @@ def : Pat<
 	(i64 (add (add GPR:$rs2, GPR:$rs1), GPR:$rd)),
 	(ADD3_ GPR:$rs2, GPR:$rs1, GPR:$rd)>;
 
+let hasSideEffects = 0, mayLoad = 1, mayStore = 0, isCodeGenOnly = 1, Constraints = "$rd = $rd_wb" in def LOADMAC_ : RVInst_LOADMAC<(outs GPR:$rd_wb), (ins GPR:$rs2, GPR:$rs1, GPR:$rd)>;
+
+def : Pat<
+	(i64 (add GPR:$rd, (mul (i64 (load GPR:$rs2)), (i64 (load GPR:$rs1))))),
+	(LOADMAC_ GPR:$rs2, GPR:$rs1, GPR:$rd)>;
+
 }

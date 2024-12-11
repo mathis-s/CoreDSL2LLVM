@@ -706,7 +706,7 @@ struct LoadNode : public PatternNode {
   std::unique_ptr<PatternNode> Addr;
 
   LoadNode(int Size, bool Sext, std::unique_ptr<PatternNode> Addr)
-      : PatternNode(PN_Load, LLT(), false), Size(Size), Sext(Sext),
+      : PatternNode(PN_Load, LLT::scalar(Size), false), Size(Size), Sext(Sext),
         Addr(std::move(Addr)) {}
 
   std::string patternString() override {

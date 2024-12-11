@@ -68,5 +68,24 @@ define void @implADD3(ptr %rs2, ptr %rs1, ptr noalias %rd) {
   ret void
 }
 
+define void @implLOADMAC(ptr %rs2, ptr %rs1, ptr noalias %rd) {
+  %rs1.v = load i64, ptr %rs1, align 8
+  %1 = inttoptr i64 %rs1.v to ptr
+  %rs2.v = load i64, ptr %rs2, align 8
+  %2 = inttoptr i64 %rs2.v to ptr
+  %.v = load i64, ptr %1, align 8
+  %.v1 = load i64, ptr %2, align 8
+  %3 = zext i64 %.v to i128
+  %4 = zext i64 %.v1 to i128
+  %5 = mul i128 %3, %4
+  %rd.v = load i64, ptr %rd, align 8
+  %6 = zext i64 %rd.v to i256
+  %7 = zext i128 %5 to i256
+  %8 = add i256 %6, %7
+  %9 = trunc i256 %8 to i64
+  store i64 %9, ptr %rd, align 8
+  ret void
+}
+
 attributes #0 = { nocallback nofree nosync nounwind willreturn memory(inaccessiblemem: write) }
 
