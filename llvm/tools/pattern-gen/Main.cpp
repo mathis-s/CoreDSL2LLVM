@@ -59,11 +59,11 @@ static cl::opt<bool> NoExtend(
     "no-extend",
     cl::desc("Do not apply CDSL typing rules (Use C-like type inference)."),
     cl::cat(ToolOptions));
-static cl::opt<std::string>
-    Mattr("mattr2", cl::desc("Target specific attributes"),
-          cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-          // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
-          cl::init("+m"));
+//static cl::opt<std::string>
+//    Mattr("mattr2", cl::desc("Target specific attributes"),
+//          cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
+//          // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
+//          cl::init("+m"));
 
 static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"),
                          cl::init(32));
@@ -163,7 +163,7 @@ int main(int argc, char **argv) {
     break;
   }
 
-  PGArgsStruct Args{.Mattr = Mattr,
+  PGArgsStruct Args{//.Mattr = Mattr,
                     .OptLevel = Opt,
                     .Predicates = Predicates,
                     .Is64Bit = (XLen == 64)};
