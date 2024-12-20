@@ -684,7 +684,7 @@ struct RegisterNode : public PatternNode {
           Str = "GPR:$" + std::string(Name);
         else
           Str = ("(" + RegT + " ") + "(srl GPR:$" + std::string(Name) +
-                (" (" + RegT + " ") + std::to_string(Offset * 8) + ")))";
+                (", (" + RegT + " ") + std::to_string(Offset * 8) + ")))";
       }
       if (PrintType)
         return "(" + TypeStr + " " + Str + ")";
