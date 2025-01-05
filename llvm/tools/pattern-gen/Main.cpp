@@ -30,9 +30,9 @@ using namespace llvm;
 static cl::OptionCategory ToolOptions("Tool Options");
 static cl::OptionCategory ViewOptions("View Options");
 
-static cl::opt<std::string> InputFilename(cl::Positional,
-                                          cl::desc("<input file>"),
-                                          cl::cat(ToolOptions), cl::init("-"));
+static cl::list<std::string> InputFilenames(cl::Positional,
+                                            cl::desc("<input file>"),
+                                            cl::cat(ToolOptions));
 
 static cl::opt<std::string> OutputFilename("o", cl::desc("Output filename"),
                                            cl::init("-"), cl::cat(ToolOptions),
@@ -59,11 +59,6 @@ static cl::opt<bool> NoExtend(
     "no-extend",
     cl::desc("Do not apply CDSL typing rules (Use C-like type inference)."),
     cl::cat(ToolOptions));
-//static cl::opt<std::string>
-//    Mattr("mattr2", cl::desc("Target specific attributes"),
-//          cl::value_desc("a1,+a2,-a3,..."), cl::cat(ToolOptions),
-//          // cl::init("+m,+fast-unaligned-access,+xcvalu,+xcvsimd"));
-//          cl::init("+m"));
 
 static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"),
                          cl::init(32));
@@ -91,7 +86,8 @@ static auto getOutStreams(std::string SrcPath, std::string DestPath,
   std::string NewExt = ".td";
   if (OutPath.compare("-") != 0) {
     BasePath = OutPath.parent_path() / OutPath.stem();
-    NewExt = OutPath.extension();
+    if (OutPath.has_extension())
+      NewExt = OutPath.extension().string();
   }
   // TODO: allow .td in out path
   std::string IrPath = "/dev/null";
@@ -119,64 +115,68 @@ int main(int argc, char **argv) {
     return -1;
   }
 
-  // const char* srcPath = argv[1];
+  for (auto &InputFilename : InputFilenames) {
 
-  auto [irOut, formatOut, patternOut] =
-      getOutStreams(InputFilename, OutputFilename, true);
+    std::string OutName = OutputFilename;
+    if (InputFilenames.size() > 1 || !fs::path{OutName}.has_filename())
+      OutName += fs::path{InputFilename}.stem();
+    auto [irOut, formatOut, patternOut] =
+        getOutStreams(InputFilename, OutName, true);
 
-  TokenStream Ts(InputFilename.c_str());
-  LLVMContext Ctx;
-  auto Mod = std::make_unique<Module>("mod", Ctx);
-  auto Instrs = ParseCoreDSL2(Ts, (XLen == 64), Mod.get(), NoExtend);
+    TokenStream Ts(InputFilename.c_str());
+    LLVMContext Ctx;
+    auto Mod = std::make_unique<Module>("mod", Ctx);
+    auto Instrs = ParseCoreDSL2(Ts, (XLen == 64), Mod.get(), NoExtend);
 
-  if (irOut) {
-    std::string Str;
-    raw_string_ostream OS(Str);
-    OS << *Mod;
-    OS.flush();
-    irOut << Str << "\n";
-    irOut.close();
+    if (irOut) {
+      std::string Str;
+      raw_string_ostream OS(Str);
+      OS << *Mod;
+      OS.flush();
+      irOut << Str << "\n";
+      irOut.close();
+    }
+
+    if (!SkipVerify)
+      if (verifyModule(*Mod, &errs()))
+        return -1;
+
+    if (PrintIR)
+      llvm::outs() << *Mod << "\n";
+
+    // TODO: use force
+
+    llvm::CodeGenOptLevel Opt;
+    switch (OptLevel) {
+    case '0':
+      Opt = llvm::CodeGenOptLevel::None;
+      break;
+    case '1':
+      Opt = llvm::CodeGenOptLevel::Less;
+      break;
+    case '2':
+      Opt = llvm::CodeGenOptLevel::Default;
+      break;
+    case '3':
+      Opt = llvm::CodeGenOptLevel::Aggressive;
+      break;
+    }
+
+    PGArgsStruct Args{.Mattr = "",
+                      .OptLevel = Opt,
+                      .Predicates = Predicates,
+                      .Is64Bit = (XLen == 64)};
+
+    optimizeBehavior(Mod.get(), Instrs, irOut, Args);
+    if (PrintIR)
+      llvm::outs() << *Mod << "\n";
+    if (!SkipFmt)
+      PrintInstrsAsTableGen(Instrs, formatOut);
+
+    if (!SkipPat)
+      if (generatePatterns(Mod.get(), Instrs, patternOut, Args))
+        return -1;
   }
-
-  if (!SkipVerify)
-    if (verifyModule(*Mod, &errs()))
-      return -1;
-
-  if (PrintIR)
-    llvm::outs() << *Mod << "\n";
-
-  // TODO: use force
-
-  llvm::CodeGenOptLevel Opt;
-  switch (OptLevel) {
-  case '0':
-    Opt = llvm::CodeGenOptLevel::None;
-    break;
-  case '1':
-    Opt = llvm::CodeGenOptLevel::Less;
-    break;
-  case '2':
-    Opt = llvm::CodeGenOptLevel::Default;
-    break;
-  case '3':
-    Opt = llvm::CodeGenOptLevel::Aggressive;
-    break;
-  }
-
-  PGArgsStruct Args{//.Mattr = Mattr,
-                    .OptLevel = Opt,
-                    .Predicates = Predicates,
-                    .Is64Bit = (XLen == 64)};
-
-  optimizeBehavior(Mod.get(), Instrs, irOut, Args);
-  if (PrintIR)
-    llvm::outs() << *Mod << "\n";
-  if (!SkipFmt)
-    PrintInstrsAsTableGen(Instrs, formatOut);
-
-  if (!SkipPat)
-    if (generatePatterns(Mod.get(), Instrs, patternOut, Args))
-      return -1;
   // If statistics were requested, print them out now.
   if (llvm::AreStatisticsEnabled())
     llvm::PrintStatistics();
