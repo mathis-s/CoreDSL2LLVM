@@ -62,6 +62,8 @@ static cl::opt<bool> NoExtend(
 
 static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"),
                          cl::init(32), cl::cat(ToolOptions));
+static cl::opt<int> FLen("riscv-flen", cl::desc("RISC-V FLEN (32 or 64 bit)"),
+                         cl::init(32), cl::cat(ToolOptions));
 
 // Determine optimization level.
 static cl::opt<char>
@@ -126,7 +128,7 @@ int main(int argc, char **argv) {
     TokenStream Ts(InputFilename.c_str());
     LLVMContext Ctx;
     auto Mod = std::make_unique<Module>("mod", Ctx);
-    auto Instrs = ParseCoreDSL2(Ts, (XLen == 64), Mod.get(), NoExtend);
+    auto Instrs = ParseCoreDSL2(Ts, (XLen == 64), Mod.get(), NoExtend, FLen);
 
     if (irOut) {
       std::string Str;
@@ -165,7 +167,8 @@ int main(int argc, char **argv) {
     PGArgsStruct Args{.Mattr = "",
                       .OptLevel = Opt,
                       .Predicates = Predicates,
-                      .Is64Bit = (XLen == 64)};
+                      .Is64Bit = (XLen == 64),
+                      .FLen = FLen};
 
     optimizeBehavior(Mod.get(), Instrs, irOut, Args);
     if (PrintIR)

@@ -1,0 +1,25 @@
+// RUN: pattern-gen %s -O 3 --mattr=+m,+f,+d --riscv-xlen 64 --riscv-flen 64 | FileCheck --check-prefixes=CHECK-RV64,CHECK-RV64-EXTEND -allow-unused-prefixes %s
+// RUN: pattern-gen %s -O 3 --no-extend --mattr=+m,+f,+d --riscv-xlen 64 --riscv-flen 64 | FileCheck --check-prefixes=CHECK-RV64,CHECK-RV64-NOEXTED -allow-unused-prefixes %s
+
+// CHECK-RV64: Pattern for FMAC: (any_fma FPR64:$rd, FPR64:$rs1, FPR64:$rs2)
+FMAC {
+    encoding: 7'b0101000 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
+    assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+    behavior: {
+        F[rd] = llvm_fmuladd_f64(F[rs1], F[rs2], F[rd]);
+    }
+}
+
+// CHECK-RV64-NEXT: Pattern for FMEAN: (fmul (fadd FPR64:$rs1, FPR64:$rs2), (f64 0.500000))
+FMEAN {
+    operands: {
+        unsigned<5> rd [[out]] [[is_freg]];
+        unsigned<5> rs1 [[in]] [[is_freg]];
+        unsigned<5> rs2 [[in]] [[is_freg]];
+    }
+    encoding: 7'b0101000 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
+    assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+    behavior: {
+        F[rd] = llvm_fdiv_fp64(llvm_fadd_fp64(F[rs1], F[rs2]), llvm_uitofp_fp64(2));
+    }
+}

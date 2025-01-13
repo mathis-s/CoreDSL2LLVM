@@ -1,0 +1,25 @@
+// RUN: pattern-gen %s -O 3 --mattr=+m,+f --riscv-xlen 32 --riscv-flen 32 | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-EXTEND -allow-unused-prefixes %s
+// RUN: pattern-gen %s -O 3 --no-extend --mattr=+m,+f --riscv-xlen 32 --riscv-flen 32 | FileCheck --check-prefixes=CHECK-RV32,CHECK-RV32-NOEXTED -allow-unused-prefixes %s
+
+// CHECK-RV32: Pattern for FMAC: (any_fma FPR32:$rd, FPR32:$rs1, FPR32:$rs2)
+FMAC {
+    encoding: 7'b0101000 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
+    assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+    behavior: {
+        F[rd] = llvm_fmuladd_f32(F[rs1], F[rs2], F[rd]);
+    }
+}
+
+// CHECK-RV32-NEXT: Pattern for FMEAN: (fmul (fadd FPR32:$rs1, FPR32:$rs2), (f32 0.500000))
+FMEAN {
+    operands: {
+        unsigned<5> rd [[out]] [[is_freg]];
+        unsigned<5> rs1 [[in]] [[is_freg]];
+        unsigned<5> rs2 [[in]] [[is_freg]];
+    }
+    encoding: 7'b0101000 :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: rd[4:0] :: 7'b0101011;
+    assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
+    behavior: {
+        F[rd] = llvm_fdiv_fp32(llvm_fadd_fp32(F[rs1], F[rs2]), llvm_uitofp_fp32(2));
+    }
+}
