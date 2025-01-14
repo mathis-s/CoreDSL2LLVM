@@ -431,7 +431,7 @@ Value gen_binop(TokenStream &ts, llvm::Function *func, llvm::IRBuilder<> &build,
       [AssignmentShiftRight] = Op::Shl,
       [AssignmentShiftLeft] = Op::AShr,
   };
-  assert(op >= Plus && op <= AssignmentShiftRight);
+  assert(op >= Plus && op <= AssignmentShiftLeft);
   llvm::BinaryOperator::BinaryOps llop = conv[op];
 
   bool outSigned;
