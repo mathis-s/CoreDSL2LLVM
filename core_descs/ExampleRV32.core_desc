@@ -5,8 +5,13 @@ InstructionSet XExampleRV32 extends RISCVBase {
 
     instructions {
 
-        // CHECK-RV32: Pattern for LB: (i32 (sextloadi8 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 uimm12:$imm))))))
+        // CHECK-RV32: Pattern for LB: (i32 (sextloadi8 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 simm12:$imm))))))
         LB {
+            operands: {
+                unsigned<5> rd;
+                unsigned<5> rs1;
+                signed<12> imm;
+            }
             encoding: imm[11:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0000011;
             assembly:"{name(rd)}, {imm}({name(rs1)})";
             behavior: {
@@ -16,8 +21,13 @@ InstructionSet XExampleRV32 extends RISCVBase {
             }
         }
 
-        // CHECK-RV32-NEXT: Pattern for LH: (i32 (sextloadi16 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 uimm12:$imm))))))
+        // CHECK-RV32-NEXT: Pattern for LH: (i32 (sextloadi16 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 simm12:$imm))))))
         LH {
+            operands: {
+                unsigned<5> rd;
+                unsigned<5> rs1;
+                signed<12> imm;
+            }
             encoding: imm[11:0] :: rs1[4:0] :: 3'b001 :: rd[4:0] :: 7'b0000011;
             assembly:"{name(rd)}, {imm}({name(rs1)})";
             behavior: {
@@ -43,8 +53,13 @@ InstructionSet XExampleRV32 extends RISCVBase {
             }
         }
 
-        // CHECK-RV32-NEXT: Pattern for LBU: (i32 (zextloadi8 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 uimm12:$imm))))))
+        // CHECK-RV32-NEXT: Pattern for LBU: (i32 (zextloadi8 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 simm12:$imm))))))
         LBU {
+            operands: {
+                unsigned<5> rd;
+                unsigned<5> rs1;
+                signed<12> imm;
+            }
             encoding: imm[11:0] :: rs1[4:0] :: 3'b100 :: rd[4:0] :: 7'b0000011;
             assembly:"{name(rd)}, {imm}({name(rs1)})";
             behavior: {
@@ -54,8 +69,13 @@ InstructionSet XExampleRV32 extends RISCVBase {
             }
         }
 
-        // CHECK-RV32-NEXT: Pattern for LHU: (i32 (zextloadi16 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 uimm12:$imm))))))
+        // CHECK-RV32-NEXT: Pattern for LHU: (i32 (zextloadi16 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 simm12:$imm))))))
         LHU {
+            operands: {
+                unsigned<5> rd;
+                unsigned<5> rs1;
+                signed<12> imm;
+            }
             encoding: imm[11:0] :: rs1[4:0] :: 3'b101 :: rd[4:0] :: 7'b0000011;
             assembly:"{name(rd)}, {imm}({name(rs1)})";
             behavior: {
@@ -65,8 +85,13 @@ InstructionSet XExampleRV32 extends RISCVBase {
             }
         }
 
-        // CHECK-RV32-NEXT: Pattern for SB: (truncstorei8 (XLenVT GPR:$rs2), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 uimm12:$imm)))))
+        // CHECK-RV32-NEXT: Pattern for SB: (truncstorei8 (XLenVT GPR:$rs2), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 simm12:$imm)))))
         SB {
+            operands: {
+                unsigned<5> rs1;
+                unsigned<5> rs2;
+                signed<12> imm;
+            }
             encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b000 :: imm[4:0] :: 7'b0100011;
             assembly:"{name(rs2)}, {imm}({name(rs1)})";
             behavior: {
@@ -75,8 +100,13 @@ InstructionSet XExampleRV32 extends RISCVBase {
             }
         }
 
-        // CHECK-RV32-NEXT: Pattern for SH: (truncstorei16 (XLenVT GPR:$rs2), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 uimm12:$imm)))))
+        // CHECK-RV32-NEXT: Pattern for SH: (truncstorei16 (XLenVT GPR:$rs2), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 simm12:$imm)))))
         SH {
+            operands: {
+                unsigned<5> rs1;
+                unsigned<5> rs2;
+                signed<12> imm;
+            }
             encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b001 :: imm[4:0] :: 7'b0100011;
             assembly:"{name(rs2)}, {imm}({name(rs1)})";
             behavior: {
@@ -85,8 +115,13 @@ InstructionSet XExampleRV32 extends RISCVBase {
             }
         }
 
-        // CHECK-RV32-NEXT: Pattern for SW: (store (XLenVT GPR:$rs2), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 uimm12:$imm)))))
+        // CHECK-RV32-NEXT: Pattern for SW: (store (XLenVT GPR:$rs2), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 simm12:$imm)))))
         SW {
+            operands: {
+                unsigned<5> rs1;
+                unsigned<5> rs2;
+                signed<12> imm;
+            }
             encoding: imm[11:5] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: imm[4:0] :: 7'b0100011;
             assembly:"{name(rs2)}, {imm}({name(rs1)})";
             behavior: {
