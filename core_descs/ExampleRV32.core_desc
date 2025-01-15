@@ -27,8 +27,13 @@ InstructionSet XExampleRV32 extends RISCVBase {
             }
         }
 
-        // CHECK-RV32-NEXT: Pattern for LW: (i32 (load (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 uimm12:$imm))))))
+        // CHECK-RV32-NEXT: Pattern for LW: (i32 (load (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i32 (i32 simm12:$imm))))))
         LW {
+            operands: {
+                unsigned<5> rd;
+                unsigned<5> rs1;
+                signed<12> imm;
+            }
             encoding: imm[11:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
             assembly:"{name(rd)}, {imm}({name(rs1)})";
             behavior: {
