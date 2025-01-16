@@ -12,12 +12,6 @@ def : Pat<
 	(store (XLenVT GPR:$rs3), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 (shl (i64 GPR:$rs2), (i64 (i64 uimm5:$imm)))))))),
 	(STR_ GPR:$rs3, GPR:$rs2, GPR:$rs1, uimm5:$imm)>;
 
-let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isCodeGenOnly = 1, Constraints = "$rd = $rd_wb" in def ADD3_ : RVInst_ADD3<(outs GPR:$rd_wb), (ins GPR:$rs2, GPR:$rs1, GPR:$rd)>;
-
-def : Pat<
-	(i64 (add (add GPR:$rs2, GPR:$rs1), GPR:$rd)),
-	(ADD3_ GPR:$rs2, GPR:$rs1, GPR:$rd)>;
-
 let hasSideEffects = 0, mayLoad = 1, mayStore = 0, isCodeGenOnly = 1, Constraints = "$rd = $rd_wb" in def LOADMAC_ : RVInst_LOADMAC<(outs GPR:$rd_wb), (ins GPR:$rs2, GPR:$rs1, GPR:$rd)>;
 
 def : Pat<

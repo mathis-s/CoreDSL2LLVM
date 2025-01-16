@@ -43,5 +43,15 @@ InstructionSet XExample extends RISCVBase {
           }
       }
 
+      // CHECK-RV32-NEXT: Pattern for ADD3: (add (add GPR:$rs2, GPR:$rs1), GPR:$rd)
+      // CHECK-RV64-NEXT: Pattern for ADD3: (add (add GPR:$rs2, GPR:$rs1), GPR:$rd)
+      ADD3 {
+          encoding: 7'b1 :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
+          assembly:"{name(rd)}, {name(rs2)}({name(rs1)})";
+          behavior: {
+              X[rd] += X[rs1] + X[rs2];
+          }
+      }
+
     }
 }

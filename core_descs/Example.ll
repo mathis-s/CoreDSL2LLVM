@@ -51,3 +51,13 @@ define void @implNAND(ptr %rs2, ptr %rs1, ptr noalias %rd) {
   ret void
 }
 
+define void @implADD3(ptr %rs2, ptr %rs1, ptr noalias %rd) {
+  %rs1.v = load i64, ptr %rs1, align 8
+  %rs2.v = load i64, ptr %rs2, align 8
+  %1 = add i64 %rs1.v, %rs2.v
+  %rd.v = load i64, ptr %rd, align 8
+  %2 = add i64 %rd.v, %1
+  store i64 %2, ptr %rd, align 8
+  ret void
+}
+

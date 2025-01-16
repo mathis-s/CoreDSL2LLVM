@@ -19,7 +19,7 @@ class RVInst_CV_ABS<dag outs, dag ins> : RVInst<outs, ins, "cv.abs", "$rd, $rs1"
 	let Inst{11-7} = rd{4-0};
 	let Inst{6-0} = 0x0;
 }
-class RVInst_CV_ADDN<dag outs, dag ins> : RVInst<outs, ins, "cv.addn", "$rd, $rs1, $rs2, {Luimm5}", [], InstFormatOther> {
+class RVInst_CV_ADDN<dag outs, dag ins> : RVInst<outs, ins, "cv.addn", "$rd, $rs1, $rs2, $Luimm5", [], InstFormatOther> {
 	bits<5> Luimm5;
 	bits<5> rs2;
 	bits<5> rs1;
