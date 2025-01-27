@@ -64,6 +64,7 @@ STATISTIC(PatternGenNumErrorFormatStore, "Errors of type: FORMAT_STORE");
 STATISTIC(PatternGenNumErrorFormatLoad, "Errors of type: FORMAT_LOAD");
 STATISTIC(PatternGenNumErrorFormatImm, "Errors of type: FORMAT_IMM");
 STATISTIC(PatternGenNumErrorFormat, "Errors of type: FORMAT");
+STATISTIC(PatternGenNumErrorMultipleStores, "Errors of type: MULTIPLE STORES");
 
 #ifdef LLVM_GISEL_COV_PREFIX
 static cl::opt<std::string>
@@ -140,7 +141,8 @@ enum PatternErrorT {
   FORMAT_STORE,
   FORMAT_LOAD,
   FORMAT_IMM,
-  FORMAT
+  FORMAT,
+  MULTIPLE_STORES
 };
 struct PatternError {
   PatternErrorT Type;
@@ -153,7 +155,7 @@ struct PatternError {
 
 std::string Errors[] = {"success",        "multiple blocks", "expected return",
                         "expected store", "load format",     "immediate format",
-                        "format"};
+                        "format",         "multiple stores"};
 llvm::Statistic *ErrorStats[] = {
     nullptr,
     &PatternGenNumErrorMultipleBlocks,
@@ -162,6 +164,7 @@ llvm::Statistic *ErrorStats[] = {
     &PatternGenNumErrorFormatLoad,
     &PatternGenNumErrorFormatImm,
     &PatternGenNumErrorFormat,
+    &PatternGenNumErrorMultipleStores
 };
 
 static const std::unordered_map<unsigned, std::string> CmpStr = {
@@ -1308,7 +1311,21 @@ static PatternOrError generatePattern(MachineFunction &MF) {
   if (Instrs == InstrsEnd || Instrs->getOpcode() != TargetOpcode::G_STORE)
     return PError(FORMAT_STORE);
 
-  return traverseStore(MRI, *Instrs);
+  auto Result = traverseStore(MRI, *Instrs);
+  // Return on error
+  if (Result.first)
+    return Result;
+
+  Instrs++;
+
+  for (; Instrs != InstrsEnd; Instrs++)
+    if (Instrs->getOpcode() == TargetOpcode::G_STORE)
+    {
+      MachineInstr& MI = *Instrs;
+      return pError(PatternErrorT::MULTIPLE_STORES, &MI);
+    }
+
+  return Result;
 }
 
 bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
