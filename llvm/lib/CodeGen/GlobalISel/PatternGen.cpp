@@ -180,19 +180,19 @@ static const std::unordered_map<unsigned, std::string> CmpStr = {
     {CmpInst::Predicate::ICMP_UGE, "SETUGE"},
 };
 
-std::string lltToString(LLT Llt) {
+std::string lltToString(LLT Llt, bool IsFloat = false) {
   if (Llt.isFixedVector())
     return "v" + std::to_string(Llt.getElementCount().getFixedValue()) +
            lltToString(Llt.getElementType());
   if (Llt.isScalar())
-    return "i" + std::to_string(Llt.getSizeInBits());
+    return (IsFloat ? "f" : "i") + std::to_string(Llt.getSizeInBits());
   if (Llt.isPointer())
     return "iPTR";
   assert(0 && "invalid type");
   return "invalid";
 }
 
-std::string lltToRegTypeStr(LLT Type) {
+std::string lltToRegTypeStr(LLT Type, bool IsFloat) {
   if (Type.isValid()) {
     if (Type.isFixedVector() && Type.getElementType().isScalar() &&
         Type.getSizeInBits() == 32) {
@@ -202,7 +202,7 @@ std::string lltToRegTypeStr(LLT Type) {
         return "GPR32V2";
       abort();
     } else
-      return "GPR";
+      return IsFloat ? ("FPR" + std::to_string(PatternGenArgs::Args.FLen))  : "GPR";
   }
   assert(0 && "invalid type");
   return "invalid";
@@ -221,6 +221,7 @@ struct PatternNode {
     PN_Compare,
     PN_Unop,
     PN_Constant,
+    PN_ConstantFP,
     PN_Register,
     PN_Load,
     PN_Select,
@@ -296,7 +297,7 @@ struct ShuffleNode : public PatternNode {
         Second(std::move(Second)), Mask(std::move(Mask)) {}
 
   std::string patternString() override {
-    std::string TypeStr = lltToString(Type);
+    std::string TypeStr = lltToString(Type, false);
     std::string MaskStr = "";
 
     for (size_t I = 0; I < Mask.size(); I++) {
@@ -348,10 +349,11 @@ struct TernopNode : public PatternNode {
     static const std::unordered_map<int, std::string> TernopStr = {
         {TargetOpcode::G_FSHL, "fshl"},
         {TargetOpcode::G_FSHR, "fshr"},
+        {TargetOpcode::G_FMA, "any_fma"},
         {TargetOpcode::G_INSERT_VECTOR_ELT, "vector_insert"},
         {TargetOpcode::G_SELECT, "select"}};
 
-    std::string TypeStr = lltToString(Type);
+    std::string TypeStr = lltToString(Type, false);
     std::string OpString =
         "(" + std::string(TernopStr.at(Op)) + " " + First->patternString() +
         ", " + Second->patternString() + ", " + Third->patternString() + ")";
@@ -390,15 +392,18 @@ struct BinopNode : public PatternNode {
   std::string patternString() override {
     static const std::unordered_map<int, std::string> BinopStr = {
         {TargetOpcode::G_ADD, "add"},
+        {TargetOpcode::G_FADD, "fadd"},
         {TargetOpcode::G_PTR_ADD, "ptradd"},
         {TargetOpcode::G_SUB, "sub"},
         {TargetOpcode::G_MUL, "mul"},
+        {TargetOpcode::G_FMUL, "fmul"},
         {TargetOpcode::G_UMULH, "mulhu"},
         {TargetOpcode::G_SMULH, "mulhs"},
         {TargetOpcode::G_UDIV, "udiv"},
         {TargetOpcode::G_SREM, "srem"},
         {TargetOpcode::G_UREM, "urem"},
         {TargetOpcode::G_SDIV, "sdiv"},
+        {TargetOpcode::G_FDIV, "fdiv"},
         {TargetOpcode::G_SADDSAT, "saddsat"},
         {TargetOpcode::G_UADDSAT, "uaddsat"},
         {TargetOpcode::G_SSUBSAT, "ssubsat"},
@@ -441,9 +446,10 @@ struct BinopNode : public PatternNode {
     bool LeftImm = Left->IsImm;
     bool RightImm = Right->IsImm;
     bool DoSwap = IsCommutable && LeftImm && !RightImm;
-    std::string TypeStr = lltToString(Type);
-    std::string LhsTypeStr = lltToString(Left->Type);
-    std::string RhsTypeStr = lltToString(Right->Type);
+    bool IsFloat = isPreISelGenericFloatingPointOpcode(Op);
+    std::string TypeStr = lltToString(Type, IsFloat);
+    std::string LhsTypeStr = lltToString(Left->Type, IsFloat);
+    std::string RhsTypeStr = lltToString(Right->Type, IsFloat);
 
     // Explicitly specifying types for all ops increases pattern compile time
     // significantly, so we only do for ops where deduction fails otherwise.
@@ -500,9 +506,9 @@ struct CompareNode : public BinopNode {
         Cond(Cond) {}
 
   std::string patternString() override {
-    std::string TypeStr = lltToString(Type);
-    std::string LhsTypeStr = lltToString(Left->Type);
-    std::string RhsTypeStr = lltToString(Right->Type);
+    std::string TypeStr = lltToString(Type, false);
+    std::string LhsTypeStr = lltToString(Left->Type, false);
+    std::string RhsTypeStr = lltToString(Right->Type, false);
 
     return "(" + TypeStr + " (setcc (" + LhsTypeStr + " " +
            Left->patternString() + "), (" + RhsTypeStr + " " +
@@ -525,7 +531,7 @@ struct SelectNode : public PatternNode {
         Right(std::move(Right)), Tval(std::move(Tval)), Fval(std::move(Fval)) {}
 
   std::string patternString() override {
-    std::string TypeStr = lltToString(Type);
+    std::string TypeStr = lltToString(Type, false);
 
     return "(" + TypeStr + " (riscv_selectcc " + Left->patternString() + ", " +
            Right->patternString() + ", " + CmpStr.at(Cond) + ", " +
@@ -574,7 +580,7 @@ struct UnopNode : public PatternNode {
         {TargetOpcode::G_CTPOP, "ctpop"},
         {TargetOpcode::G_ABS, "abs"}};
 
-    std::string TypeStr = lltToString(Type);
+    std::string TypeStr = lltToString(Type, false);
 
     // ignore bitcast ops for now
     if (Op == TargetOpcode::G_BITCAST)
@@ -605,14 +611,34 @@ struct ConstantNode : public PatternNode {
                                            : std::to_string((int32_t)Constant);
     if (Type.isFixedVector()) {
 
-      std::string TypeStr = lltToString(Type);
+      std::string TypeStr = lltToString(Type, false);
       return "(" + TypeStr + " (" + RegT + " " + ConstantStr + "))";
     }
-    return "(" + lltToString(Type) + " " + ConstantStr + ")";
+    return "(" + lltToString(Type, false) + " " + ConstantStr + ")";
   }
 
   static bool classof(const PatternNode *Pat) {
     return Pat->getKind() == PN_Constant;
+  }
+};
+
+struct ConstantFPNode : public PatternNode {
+  double Constant;
+  ConstantFPNode(LLT Type, double Const)
+      : PatternNode(PN_ConstantFP, Type, true), Constant(Const) {}
+
+  std::string patternString() override {
+    std::string ConstantStr = std::to_string(Constant);
+    if (Type.isFixedVector()) {
+
+      std::string TypeStr = lltToString(Type, true);
+      return "(" + TypeStr + " (" + RegT + " " + ConstantStr + "))";
+    }
+    return "(" + lltToString(Type, true) + " " + ConstantStr + ")";
+  }
+
+  static bool classof(const PatternNode *Pat) {
+    return Pat->getKind() == PN_ConstantFP;
   }
 };
 
@@ -623,18 +649,19 @@ struct RegisterNode : public PatternNode {
   int Offset;
   int Size;
   bool Sext;
+  bool IsFloat;
   bool VectorExtract =
       false; // TODO: set based on type of this register in other uses
 
   size_t RegIdx;
 
   RegisterNode(LLT Type, StringRef Name, size_t RegIdx, bool IsImm, int Offset,
-               int Size, bool Sext)
+               int Size, bool Sext, bool IsFloat)
       : PatternNode(PN_Register, Type, IsImm), Name(Name), Offset(Offset),
-        Size(Size), Sext(Sext), RegIdx(RegIdx) {}
+        Size(Size), Sext(Sext), RegIdx(RegIdx), IsFloat(IsFloat) {}
 
   std::string patternString() override {
-    std::string TypeStr = lltToString(Type);
+    std::string TypeStr = lltToString(Type, false);  // TODO
     bool PrintType = Type.isPointer();
 
     if (IsImm) {
@@ -648,7 +675,7 @@ struct RegisterNode : public PatternNode {
     if ((uint64_t)Size == XLen) {
       std::string Str;
       if ((Type.isScalar() && Type.getSizeInBits() == XLen) || Type.isPointer())
-        Str = "GPR:$" + std::string(Name);
+        Str = (IsFloat ? ("FPR" + std::to_string(PatternGenArgs::Args.FLen) + ":$") : "GPR:$") + std::string(Name);
       if (PrintType)
         return "(" + TypeStr + " " + Str + ")";
       return Str;
@@ -738,7 +765,7 @@ struct CastNode : public PatternNode {
       : PatternNode(PN_Cast, Type, false), Value(std::move(Value)) {}
 
   std::string patternString() override {
-    auto LLTString = lltToString(Type);
+    auto LLTString = lltToString(Type, false);
     return "(" + LLTString + " " + Value->patternString() + ")";
   }
 
@@ -880,18 +907,15 @@ traverseNOpOperands(MachineRegisterInfo &MRI, MachineInstr &Cur, size_t N,
                     int Start = 1) {
   std::vector<std::unique_ptr<PatternNode>> Operands(N);
   for (size_t I = 0; I < N; I++) {
-    // llvm::outs() << "i=" << i << '\n';
     assert(Cur.getOperand(Start + I).isReg() && "expected register");
     auto *Node = MRI.getOneDef(Cur.getOperand(Start + I).getReg());
     if (!Node) {
-      // llvm::outs() << "Err" << '\n';
       return std::make_tuple(PatternError(FORMAT, &Cur),
                              std::vector<std::unique_ptr<PatternNode>>());
     }
 
     auto [Err_, Node_] = traverse(MRI, *Node->getParent());
     if (Err_) {
-      // llvm::outs() << "Err2" << '\n';
       return std::make_tuple(Err_, std::vector<std::unique_ptr<PatternNode>>());
     }
     // return std::make_tuple(SUCCESS, std::move(NodeR));
@@ -980,13 +1004,13 @@ static PatternOrError traverseRegLoad(MachineRegisterInfo &MRI,
     return pError(FORMAT_LOAD, AddrI);
 
   PatternArgs[Idx].Llt = MRI.getType(Cur.getOperand(0).getReg());
-  PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(PatternArgs[Idx].Llt);
+  PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(PatternArgs[Idx].Llt, false);  // TODO
   PatternArgs[Idx].In = true;
 
   assert(Cur.getOperand(0).isReg() && "expected register");
   auto Node = std::make_unique<RegisterNode>(
       MRI.getType(Cur.getOperand(0).getReg()), Field->ident, Idx, false,
-      ReadOffset, ReadSize, false);
+      ReadOffset, ReadSize, false, Field->type & CDSLInstr::FREG);
 
   return PPattern(std::move(Node));
 }
@@ -995,13 +1019,16 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
   switch (Cur.getOpcode()) {
   case TargetOpcode::G_ADD:
+  case TargetOpcode::G_FADD:
   case TargetOpcode::G_PTR_ADD:
   case TargetOpcode::G_SUB:
   case TargetOpcode::G_MUL:
+  case TargetOpcode::G_FMUL:
   case TargetOpcode::G_UMULH:
   case TargetOpcode::G_SMULH:
   case TargetOpcode::G_SDIV:
   case TargetOpcode::G_UDIV:
+  case TargetOpcode::G_FDIV:
   case TargetOpcode::G_SREM:
   case TargetOpcode::G_UREM:
   case TargetOpcode::G_SADDSAT:
@@ -1084,7 +1111,7 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
       assert(Cur.getOperand(0).isReg() && "expected register");
       AsRegNode->Type = MRI.getType(Cur.getOperand(0).getReg());
       PatternArgs[AsRegNode->RegIdx].ArgTypeStr =
-          lltToRegTypeStr(AsRegNode->Type);
+          lltToRegTypeStr(AsRegNode->Type, false);
     }
 
     return std::make_pair(SUCCESS, std::move(Node));
@@ -1112,6 +1139,14 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
     return std::make_pair(SUCCESS, std::make_unique<ConstantNode>(
                                        MRI.getType(Cur.getOperand(0).getReg()),
                                        Imm->getLimitedValue()));
+  }
+  case TargetOpcode::G_FCONSTANT: {
+    // auto *Imm = Cur.getOperand(1).getCImm();
+    auto *Imm = Cur.getOperand(1).getFPImm();
+    assert(Cur.getOperand(0).isReg() && "expected register");
+    return std::make_pair(SUCCESS, std::make_unique<ConstantFPNode>(
+                                       MRI.getType(Cur.getOperand(0).getReg()),
+                                       Imm->getValueAPF().convertToDouble()));
   }
   case TargetOpcode::G_IMPLICIT_DEF: {
     assert(Cur.getOperand(0).isReg() && "expected register");
@@ -1154,7 +1189,7 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
                             std::make_unique<RegisterNode>(
                                 MRI.getType(Cur.getOperand(0).getReg()),
                                 Field->ident, Idx, true, 0, Field->len,
-                                Field->type & CDSLInstr::SIGNED));
+                                Field->type & CDSLInstr::SIGNED, Field->type & CDSLInstr::FREG));
     }
 
     // Else COPY is just a pass-through.
@@ -1185,6 +1220,7 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
   }
   case TargetOpcode::G_FSHL:
   case TargetOpcode::G_FSHR:
+  case TargetOpcode::G_FMA:
   case TargetOpcode::G_SELECT:
   case TargetOpcode::G_INSERT_VECTOR_ELT: {
     auto [Err, NodeFirst, NodeSecond, NodeThird] =
@@ -1241,7 +1277,7 @@ static PatternOrError traverseRegStore(size_t Idx, MachineRegisterInfo &MRI,
 
   PatternArgs[Idx].Out = true;
   PatternArgs[Idx].Llt = Type;
-  PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(Type);
+  PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(Type, false);  // TODO
 
   return traverse(MRI, Root);
 }
@@ -1421,7 +1457,7 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   std::string Code = "def : Pat<\n\t";
 
   if (OutType.isValid())
-    Code += "(" + lltToString(OutType) + " " + PatternStr + "),\n\t(" +
+    Code += "(" + lltToString(OutType, false) + " " + PatternStr + "),\n\t(" +
             InstName + "_ ";
   else
     Code += PatternStr + ",\n\t(" + InstName + "_ ";

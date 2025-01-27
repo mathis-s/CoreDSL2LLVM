@@ -28,6 +28,7 @@ struct CDSLInstr
         IN = 32,
         OUT = 64,
         IS_32_BIT = 128,
+        FREG = 256,
     };
 
     struct Field

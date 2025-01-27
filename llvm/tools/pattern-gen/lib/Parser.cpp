@@ -43,6 +43,7 @@ struct Value {
   llvm::Value *ll;
   int bitWidth;
   bool isSigned;
+  bool isFloat;
   bool isLValue;
 
   Value(llvm::Value *llvalue, bool isSigned = false)
@@ -50,11 +51,13 @@ struct Value {
     assert(!llvm::isa<llvm::PointerType>(llvalue->getType()));
     bitWidth = llvalue->getType()->getIntegerBitWidth();
     isLValue = false;
+    isFloat = false;
   }
 
   Value(llvm::Value *llvalue, int bitWidth, bool isSigned = false)
       : ll(llvalue), bitWidth(bitWidth), isSigned(isSigned) {
     isLValue = true;
+    isFloat = false;
   }
 
   Value() {}
@@ -69,8 +72,11 @@ static llvm::BasicBlock *entry;
 static CDSLInstr *curInstr;
 
 static int xlen;
+static int flen;
 static bool NoExtend_;
 static llvm::Type *regT;
+static llvm::Type *regT2;
+static llvm::Type *fregT;
 
 static void reset_globals() {
   variables.clear();
@@ -779,6 +785,73 @@ static auto find_var(uint32_t identIdx) {
       [identIdx](CDSLInstr::Field &f) { return f.identIdx == identIdx; });
 }
 
+std::vector<Value> ParseFuncCallArgs(TokenStream &ts, llvm::Function *func, llvm::IRBuilder<> &build) {
+  std::vector<Value> args;
+  pop_cur(ts, RBrOpen);
+  if (ts.Peek().type != RBrClose) {
+      do {
+      auto expr = ParseExpression(ts, func, build);
+      promote_lvalue(build, expr);
+      args.push_back(expr);
+      } while (pop_cur_if(ts, Comma));
+  }
+  pop_cur(ts, RBrClose);
+  return args;
+}
+
+Value ParseLLVMFuncCall(TokenStream &ts, llvm::Function *func,
+                              llvm::IRBuilder<> &build, std::string func_name) {
+  auto args = ParseFuncCallArgs(ts, func, build);
+  if (func_name == "llvm_fmuladd_f32" || func_name == "llvm_fmuladd_f64") {
+    assert(flen == std::stoi(func_name.substr(func_name.size() - 2)));
+    assert(args.size() == 3);
+    auto A_ = build.CreateBitCast(args[0].ll, fregT);
+    auto B_ = build.CreateBitCast(args[1].ll, fregT);
+    auto M_ = build.CreateBitCast(args[2].ll, fregT);
+    auto temp = build.CreateIntrinsic(fregT, llvm::Intrinsic::fmuladd, llvm::ArrayRef<llvm::Value *>{M_, A_, B_}, nullptr);
+    auto temp_ = build.CreateBitCast(temp, regT2);
+    Value v = {temp_, false};
+    v.bitWidth = xlen;  // TODO
+    return v;
+  } else if (func_name == "llvm_fdiv_fp32" || func_name == "llvm_fdiv_fp64") {
+    assert(flen == std::stoi(func_name.substr(func_name.size() - 2)));
+    assert(args.size() == 2);
+    auto A_ = build.CreateBitCast(args[0].ll, fregT);
+    auto B_ = build.CreateBitCast(args[1].ll, fregT);
+    auto temp = build.CreateFDiv(A_, B_);
+    temp = build.CreateBitCast(temp, regT2);
+    Value v = {temp, false};
+    v.bitWidth = xlen;  // TODO
+    return v;
+  } else if (func_name == "llvm_fadd_fp32" || func_name == "llvm_fadd_fp64") {
+    assert(flen == std::stoi(func_name.substr(func_name.size() - 2)));
+    assert(args.size() == 2);
+    auto A_ = build.CreateBitCast(args[0].ll, fregT);
+    auto B_ = build.CreateBitCast(args[1].ll, fregT);
+    auto temp = build.CreateFAdd(A_, B_);
+    temp = build.CreateBitCast(temp, regT2);
+    Value v = {temp, false};
+    v.bitWidth = xlen;  // TODO
+    return v;
+  } else if (func_name == "llvm_uitofp_fp32" || func_name == "llvm_uitofp_fp64") {
+    assert(flen == std::stoi(func_name.substr(func_name.size() - 2)));
+    assert(args.size() == 1);
+    auto A = args[0];
+    if (A.bitWidth != xlen) {
+      A.isSigned = false;
+      A.bitWidth = xlen;
+      fit_to_size(A, build);
+    }
+    auto A_ = A.ll;
+    auto temp = build.CreateUIToFP(A_, fregT);
+    temp = build.CreateBitCast(temp, regT2);
+    Value v = {temp, false};
+    v.bitWidth = xlen;  // TODO
+    return v;
+  }
+  error(("undefined llvm function: " + func_name).c_str(), ts);
+}
+
 Value ParseExpressionTerminal(TokenStream &ts, llvm::Function *func,
                               llvm::IRBuilder<> &build) {
   auto &ctx = func->getContext();
@@ -805,8 +878,9 @@ Value ParseExpressionTerminal(TokenStream &ts, llvm::Function *func,
         len = xlen;
       return Value{addrPtr, len, false};
     }
-    if (t.ident.str == "X" || t.ident.str == "XW") {
+    if (t.ident.str == "X" || t.ident.str == "XW" || t.ident.str == "F") {
       bool sizeIs32 = t.ident.str == "XW";
+      bool isFloat = t.ident.str == "F";
       pop_cur(ts, ABrOpen);
       auto ident = pop_cur(ts, Identifier).ident;
       pop_cur(ts, ABrClose);
@@ -819,6 +893,8 @@ Value ParseExpressionTerminal(TokenStream &ts, llvm::Function *func,
                     .c_str(),
                 ts);
         sizeIs32 |= (match->type & CDSLInstr::IS_32_BIT);
+        if (isFloat)  // TODO: assert not REG
+          match->type = (CDSLInstr::FieldType)(match->type | CDSLInstr::FieldType::FREG);
         return Value{func->getArg(match - curInstr->fields.begin()),
                      sizeIs32 ? 32 : xlen,
                      (bool)(match->type & CDSLInstr::SIGNED_REG)};
@@ -840,10 +916,16 @@ Value ParseExpressionTerminal(TokenStream &ts, llvm::Function *func,
         return v;
       }
     }
+    // TODO: check if float reg and get flen
+    // TODO: parse funtion call util
+    if (t.ident.str.rfind("llvm_", 0) == 0) {
+      return ParseLLVMFuncCall(ts, func, build, std::string(t.ident.str));
+    }
 
     auto iter = variables.find(t.ident.idx);
     if (iter != variables.end())
       return iter->getSecond().back().val;
+
 
     error(("undefined symbol: " + std::string(t.ident.str)).c_str(), ts);
   }
@@ -1181,6 +1263,7 @@ void ParseOperands(TokenStream &ts, CDSLInstr &instr) {
                    {"is_signed", {FieldType::SIGNED_REG, 0}},
                    {"is_imm", {FieldType::IMM, 0}},
                    {"is_reg", {FieldType::REG, 0}},
+                   {"is_freg", {FieldType::FREG, 0}},
                    {"in", {FieldType::IN, 0}},
                    {"out", {FieldType::OUT, 0}},
                    {"inout", {(FieldType::IN | FieldType::OUT), 0}},
@@ -1438,11 +1521,14 @@ void ParseBehaviour(TokenStream &ts, CDSLInstr &instr, llvm::Module *mod,
 }
 
 std::vector<CDSLInstr> ParseCoreDSL2(TokenStream &ts, bool is64Bit,
-                                     llvm::Module *mod, bool NoExtend) {
+                                     llvm::Module *mod, bool NoExtend, int Flen) {
   std::vector<CDSLInstr> instrs;
   xlen = is64Bit ? 64 : 32;
+  flen = Flen;  // TODO: allow 0?
   NoExtend_ = NoExtend;
   regT = llvm::Type::getIntNTy(mod->getContext(), xlen);
+  regT2 = llvm::Type::getIntNTy(mod->getContext(), flen);
+  fregT = flen == 32 ? llvm::Type::getFloatTy(mod->getContext()) : llvm::Type::getDoubleTy(mod->getContext());
 
   while (ts.Peek().type != None) {
     bool parseBoilerplate =
@@ -1464,6 +1550,8 @@ std::vector<CDSLInstr> ParseCoreDSL2(TokenStream &ts, bool is64Bit,
       // add XLEN and RFS as constants for now.
       add_variable(ts, ts.GetIdentIdx("XLEN"),
                    Value{llvm::ConstantInt::get(regT, xlen)});
+      add_variable(ts, ts.GetIdentIdx("FLEN"),
+                   Value{llvm::ConstantInt::get(regT, flen)});
       add_variable(ts, ts.GetIdentIdx("RFS"),
                    Value{llvm::ConstantInt::get(regT, 32)});
       ++PatternGenNumInstructionsParsed;
