@@ -25,6 +25,7 @@ namespace llvm {
 
 namespace PatternGenArgs {
 extern std::ostream *OutStream;
+extern std::ostream *OutStreamGISelTable;
 extern std::vector<CDSLInstr> const *Instrs;
 extern PGArgsStruct Args;
 } // namespace PatternGenArgs

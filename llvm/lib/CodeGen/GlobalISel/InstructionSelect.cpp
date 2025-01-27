@@ -14,11 +14,13 @@
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Analysis/LazyBlockFrequencyInfo.h"
 #include "llvm/Analysis/ProfileSummaryInfo.h"
+#include "llvm/CodeGen/GlobalISel/GISelChangeObserver.h"
 #include "llvm/CodeGen/GlobalISel/GISelKnownBits.h"
 #include "llvm/CodeGen/GlobalISel/InstructionSelector.h"
 #include "llvm/CodeGen/GlobalISel/LegalizerInfo.h"
 #include "llvm/CodeGen/GlobalISel/Utils.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/TargetLowering.h"
@@ -159,7 +161,7 @@ bool InstructionSelect::runOnMachineFunction(MachineFunction &MF) {
 
       // We could have folded this instruction away already, making it dead.
       // If so, erase it.
-      if (isTriviallyDead(MI, MRI)) {
+      if (isTriviallyDead(MI, MRI) || MI.getFlag(MachineInstr::MarkDelete)) {
         LLVM_DEBUG(dbgs() << "Is dead; erasing.\n");
         salvageDebugInfo(MRI, MI);
         MI.eraseFromParent();

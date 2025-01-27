@@ -1,0 +1,48 @@
+for (int R_0 = 0; R_0 < 2; R_0++)
+for (int R_1 = 0; R_1 < 2; R_1++)
+for (int R_2 = 0; R_2 < 2; R_2++)
+{
+RuleMatcher RM{Locs};
+RuleMatcherScores[RM.getRuleID()] = 16;
+RM.addRequiredFeature(RK.getDef("HasVendorXCValu"));
+RM.addRequiredFeature(RK.getDef("IsRV32"));
+InstructionMatcher &_0 = RM.addInstructionMatcher("");
+_0.addPredicate<InstructionOpcodeMatcher>(&Target.getInstruction(RK.getDef("G_ADD")));
+auto &_1 = _0.addOperand((1+(R_0+0)%2), "", 0);
+auto &_2 = (**(_1.addPredicate<InstructionOperandMatcher>(RM, ""))).getInsnMatcher();
+_2.addPredicate<InstructionOpcodeMatcher>(&Target.getInstruction(RK.getDef("G_ADD")));
+auto &_3 = _2.addOperand((1+(R_1+0)%2), "", 0);
+auto &_4 = (**(_3.addPredicate<OtherUseInstructionOperandMatcher>((1+(R_2+1)%2), RM, ""))).getInsnMatcher();
+_4.addPredicate<InstructionOpcodeMatcher>(&Target.getInstruction(RK.getDef("G_ADD")));
+auto &_5 = _4.addOperand((1+(R_2+0)%2), "rd2", 0);
+_5.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+_5.addPredicate<RegisterBankOperandMatcher>(GPR);
+auto &_6 = _4.addOperand((1+(R_2+1)%2), "rs1", 0);
+_6.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+_6.addPredicate<RegisterBankOperandMatcher>(GPR);
+auto &_7 = _2.addOperand((1+(R_1+1)%2), "rd1", 0);
+_7.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+_7.addPredicate<RegisterBankOperandMatcher>(GPR);
+auto &_8 = _0.addOperand((1+(R_0+1)%2), "", 0);
+_8.addPredicate<ConstantIntOperandMatcher>(1);
+RM.addAction<CheckSafeToMoveInstAction>(1);
+auto OutputInstID = RM.allocateOutputInsnID();
+auto &DstI = Target.getInstruction(RK.getDef("DUALADD_"));
+auto &DstMIBuilder = RM.addAction<BuildMIAction>(OutputInstID, &DstI);
+DstMIBuilder.addRenderer<CopyRenderer>("rd2_wb");
+DstMIBuilder.addRenderer<CopyRenderer>("rd1_wb");
+DstMIBuilder.addRenderer<CopyRenderer>("rs1");
+DstMIBuilder.addRenderer<CopyRenderer>("rd2");
+DstMIBuilder.addRenderer<CopyRenderer>("rd1");
+auto &_O0 = _0.addOperand(0, "rd1_wb", 0);
+_O0.addPredicate<RegisterBankOperandMatcher>(GPR);
+RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, 0, GPR);
+auto &_O1 = _4.addOperand(0, "rd2_wb", 0);
+_O1.addPredicate<RegisterBankOperandMatcher>(GPR);
+RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, 1, GPR);
+RM.addAction<MarkEraseInstAction>(RM.getInsnVarID(_4));
+unsigned RootInsnID = RM.getInsnVarID(_0);
+RM.addAction<EraseInstAction>(RootInsnID);
+Rules.push_back(std::move(RM));
+postProcessRule(Rules.back());
+}

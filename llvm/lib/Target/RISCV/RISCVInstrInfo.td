@@ -2087,3 +2087,7 @@ include "RISCVInstrInfoXwch.td"
 //===----------------------------------------------------------------------===//
 
 include "RISCVInstrGISel.td"
+
+
+include "patternsInstrFormat.td"
+include "patterns.td"

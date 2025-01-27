@@ -63,6 +63,11 @@ static cl::opt<bool> NoExtend(
 static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"),
                          cl::init(32), cl::cat(ToolOptions));
 
+static cl::opt<bool>
+    UseGISelTable("gisel-table",
+                  cl::desc("Use GISel Table pattern backend (experimental)"),
+                  cl::init(true), cl::cat(ToolOptions));
+
 // Determine optimization level.
 static cl::opt<char>
     OptLevel("O",
@@ -93,6 +98,7 @@ static auto getOutStreams(std::string SrcPath, std::string DestPath,
   std::string IrPath = "/dev/null";
   std::string FmtPath = "/dev/null";
   std::string PatPath = "/dev/null";
+  std::string TabPath = "/dev/null";
   if (EmitLL) {
     IrPath = BasePath.string() + ".ll";
   }
@@ -101,10 +107,11 @@ static auto getOutStreams(std::string SrcPath, std::string DestPath,
   }
   if (!SkipPat) {
     PatPath = BasePath.string() + NewExt;
+    TabPath = BasePath.string() + ".inc";
   }
 
   return std::make_tuple(std::ofstream(IrPath), std::ofstream(FmtPath),
-                         std::ofstream(PatPath));
+                         std::ofstream(PatPath), std::ofstream(TabPath));
 }
 
 int main(int argc, char **argv) {
@@ -120,7 +127,7 @@ int main(int argc, char **argv) {
     std::string OutName = OutputFilename;
     if (InputFilenames.size() > 1 || !fs::path{OutName}.has_filename())
       OutName += fs::path{InputFilename}.stem();
-    auto [irOut, formatOut, patternOut] =
+    auto [irOut, formatOut, patternOut, tableOut] =
         getOutStreams(InputFilename, OutName, true);
 
     TokenStream Ts(InputFilename.c_str());
@@ -165,7 +172,8 @@ int main(int argc, char **argv) {
     PGArgsStruct Args{.Mattr = "",
                       .OptLevel = Opt,
                       .Predicates = Predicates,
-                      .Is64Bit = (XLen == 64)};
+                      .Is64Bit = (XLen == 64),
+                      .GISelTableBackend = UseGISelTable.getValue()};
 
     optimizeBehavior(Mod.get(), Instrs, irOut, Args);
     if (PrintIR)
@@ -174,7 +182,7 @@ int main(int argc, char **argv) {
       PrintInstrsAsTableGen(Instrs, formatOut);
 
     if (!SkipPat)
-      if (generatePatterns(Mod.get(), Instrs, patternOut, Args))
+      if (generatePatterns(Mod.get(), Instrs, patternOut, tableOut, Args))
         return -1;
   }
   // If statistics were requested, print them out now.

@@ -31,10 +31,11 @@ int optimizeBehavior(llvm::Module *M, std::vector<CDSLInstr> const &Instrs,
 }
 
 int generatePatterns(llvm::Module *M, std::vector<CDSLInstr> const &Instrs,
-                     std::ostream &Ostream, PGArgsStruct Args) {
+                     std::ostream &Ostream, std::ostream &OstreamGISelTable, PGArgsStruct Args) {
   // All other code in this file is called during code generation
   // by the LLVM pipeline. We thus "pass" arguments as globals.
   llvm::PatternGenArgs::OutStream = &Ostream;
+  llvm::PatternGenArgs::OutStreamGISelTable = &OstreamGISelTable;
   llvm::PatternGenArgs::Args = Args;
   llvm::PatternGenArgs::Instrs = &Instrs;
 
@@ -47,6 +48,7 @@ int generatePatterns(llvm::Module *M, std::vector<CDSLInstr> const &Instrs,
     Ostream << "}\n";
 
   llvm::PatternGenArgs::OutStream = nullptr;
+  llvm::PatternGenArgs::OutStreamGISelTable = nullptr;
   llvm::PatternGenArgs::Args = PGArgsStruct();
   llvm::PatternGenArgs::Instrs = nullptr;
 

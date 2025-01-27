@@ -40,15 +40,18 @@
 #include "Common/InfoByHwMode.h"
 #include "Common/SubtargetFeatureInfo.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/CodeGen/GlobalISel/GIMatchTableExecutor.h"
 #include "llvm/CodeGenTypes/LowLevelType.h"
 #include "llvm/CodeGenTypes/MachineValueType.h"
 #include "llvm/Support/CodeGenCoverage.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
+#include "llvm/Support/SMLoc.h"
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Record.h"
 #include "llvm/TableGen/TableGenBackend.h"
+#include <initializer_list>
 #include <string>
 
 using namespace llvm;
@@ -1283,11 +1286,13 @@ Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderer(
       return failedImport("Dst pattern child has multiple results");
 
     std::optional<LLTCodeGen> OpTyOrNone;
-    if (ChildTypes.front().isMachineValueType() && ChildTypes.front().getMachineValueType().SimpleTy == llvm::MVT::iPTR)
+    if (ChildTypes.front().isMachineValueType() &&
+        ChildTypes.front().getMachineValueType().SimpleTy == llvm::MVT::iPTR)
       ;
     else {
       if (ChildTypes.front().isMachineValueType())
-        OpTyOrNone = MVTToLLT(ChildTypes.front().getMachineValueType().SimpleTy);
+        OpTyOrNone =
+            MVTToLLT(ChildTypes.front().getMachineValueType().SimpleTy);
       if (!OpTyOrNone)
         return failedImport("Dst operand has an unsupported type");
     }
@@ -2248,13 +2253,13 @@ GlobalISelEmitter::buildMatchTable(MutableArrayRef<RuleMatcher> Rules,
       OpcodeOrder[Opcode] = CurrentOrdering++;
   }
 
-  llvm::stable_sort(InputRules, [&OpcodeOrder](const Matcher *A,
-                                               const Matcher *B) {
-    auto *L = static_cast<const RuleMatcher *>(A);
-    auto *R = static_cast<const RuleMatcher *>(B);
-    return std::tuple(OpcodeOrder[L->getOpcode()], L->getNumOperands()) <
-           std::tuple(OpcodeOrder[R->getOpcode()], R->getNumOperands());
-  });
+  llvm::stable_sort(
+      InputRules, [&OpcodeOrder](const Matcher *A, const Matcher *B) {
+        auto *L = static_cast<const RuleMatcher *>(A);
+        auto *R = static_cast<const RuleMatcher *>(B);
+        return std::tuple(OpcodeOrder[L->getOpcode()], L->getNumOperands()) <
+               std::tuple(OpcodeOrder[R->getOpcode()], R->getNumOperands());
+      });
 
   for (Matcher *Rule : InputRules)
     Rule->optimize();
@@ -2424,6 +2429,168 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
           .str(),
       OS);
   std::vector<RuleMatcher> Rules;
+  std::vector<SMLoc> Locs = {};
+
+  if (Target.getName() == "RISCV") {
+
+    auto &RecClasses = Target.getRegBank().getRegClasses();
+    auto GPRIt = std::find_if(
+        RecClasses.begin(), RecClasses.end(),
+        [](CodeGenRegisterClass &RC) { return RC.getName() == "GPR"; });
+    assert(GPRIt != RecClasses.end() && "no GPR reg class");
+    CodeGenRegisterClass &GPR = *GPRIt;
+
+    std::vector AddOrPtrAdd = {&Target.getInstruction(RK.getDef("G_ADD")), &Target.getInstruction(RK.getDef("G_PTR_ADD"))};
+
+    if (0) {
+      std::vector Locs = {SMLoc{}};
+      RuleMatcher RM{Locs};
+      RuleMatcherScores[RM.getRuleID()] = 16;
+      RM.addAction<DebugCommentAction>("hiii");
+      InstructionMatcher &InsnMatcher = RM.addInstructionMatcher("");
+      InsnMatcher.addPredicate<InstructionOpcodeMatcher>(
+          &Target.getInstruction(RK.getDef("G_ADD")));
+
+      RM.addRequiredFeature(RK.getDef("HasVendorXCValu"));
+
+      OperandMatcher &OM0 = InsnMatcher.addOperand(0, "rd1_wb", 8);
+      OperandMatcher &OM1 = InsnMatcher.addOperand(2, "rd1", 8);
+      OperandMatcher &OM2 = InsnMatcher.addOperand(1, "", 8);
+
+      // Regular Register Operands need to be checked.
+      OM0.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+      OM1.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+      OM0.addPredicate<RegisterBankOperandMatcher>(GPR);
+      OM1.addPredicate<RegisterBankOperandMatcher>(GPR);
+
+      // todo: either get or fix operand of other instr we step in.
+      auto IM2 = OM2.addPredicate<OtherUseInstructionOperandMatcher>(
+          1, InsnMatcher.getRuleMatcher(), "");
+      if (!IM2)
+        abort();
+      auto &OP1InsnMatcher = (**IM2).getInsnMatcher();
+      OP1InsnMatcher.addPredicate<InstructionOpcodeMatcher>(
+          &Target.getInstruction(RK.getDef("G_ADD")));
+
+      OperandMatcher &OM20 = OP1InsnMatcher.addOperand(0, "rd2_wb", 8);
+      OperandMatcher &OM21 = OP1InsnMatcher.addOperand(2, "rd2", 8);
+      OperandMatcher &OM22 = OP1InsnMatcher.addOperand(1, "rs1", 8);
+      OM20.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+      OM21.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+      OM22.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+      OM20.addPredicate<RegisterBankOperandMatcher>(GPR);
+      OM21.addPredicate<RegisterBankOperandMatcher>(GPR);
+      OM22.addPredicate<RegisterBankOperandMatcher>(GPR);
+      // OM20.addPredicate<RegisterClass>
+
+      auto OutputInstID = RM.allocateOutputInsnID();
+      auto &DstI = Target.getInstruction(RK.getDef("DUALADD_"));
+      auto &DstMIBuilder = RM.addAction<BuildMIAction>(OutputInstID, &DstI);
+      DstMIBuilder.addRenderer<CopyRenderer>("rd2_wb");
+      DstMIBuilder.addRenderer<CopyRenderer>("rd1_wb");
+      DstMIBuilder.addRenderer<CopyRenderer>("rs1");
+      DstMIBuilder.addRenderer<CopyRenderer>("rd2");
+      DstMIBuilder.addRenderer<CopyRenderer>("rd1");
+
+      unsigned RootInsnID = RM.getInsnVarID(InsnMatcher);
+      RM.addAction<EraseInstAction>(RootInsnID);
+
+      RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, 0, GPR);
+      RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, 1, GPR);
+
+      unsigned OtherRootInsnID = RM.getInsnVarID(OP1InsnMatcher);
+      RM.addAction<MarkEraseInstAction>(OtherRootInsnID);
+
+      // RM.addAction<MakeTempRegisterAction>(LLT::scalar(32), 0);
+      // RM.addAction<ReplaceRegAction>();
+
+      Rules.push_back(std::move(RM));
+      postProcessRule(Rules.back());
+      // todo: post process rule
+    }
+
+    /*for (int R_0 = 0; R_0 < 2; R_0++) {
+      RuleMatcher RM{Locs};
+      RuleMatcherScores[RM.getRuleID()] = 16;
+      RM.addRequiredFeature(RK.getDef("HasVendorXCValu"));
+      RM.addRequiredFeature(RK.getDef("IsRV32"));
+      InstructionMatcher &_0 = RM.addInstructionMatcher("");
+      _0.addPredicate<InstructionOpcodeMatcher>(
+          &Target.getInstruction(RK.getDef("G_LOAD")));
+      auto &_1 = _0.addOperand(1, "", 0);
+      _0.addPredicate<PointerToAnyOperandMatcher>(32);
+      auto &_2 = (**(_1.addPredicate<OtherUseInstructionOperandMatcher>(
+                      (1 + (R_0 + 0) % 2), RM, "")))
+                     .getInsnMatcher();
+      _2.addPredicate<InstructionOpcodeMatcher>(
+          &Target.getInstruction(RK.getDef("G_ADD")));
+      auto &_3 = _2.addOperand((1 + (R_0 + 0) % 2), "rs1", 0);
+      _3.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+      _3.addPredicate<RegisterBankOperandMatcher>(GPR);
+      auto &_4 = _2.addOperand((1 + (R_0 + 1) % 2), "", 0);
+      _4.addPredicate<ConstantIntOperandMatcher>(4);
+      RM.addAction<CheckSafeToMoveInstAction>(1);
+      auto OutputInstID = RM.allocateOutputInsnID();
+      auto &DstI = Target.getInstruction(RK.getDef("DUALADD_"));
+      auto &DstMIBuilder = RM.addAction<BuildMIAction>(OutputInstID, &DstI);
+      DstMIBuilder.addRenderer<CopyRenderer>("rd2");
+      DstMIBuilder.addRenderer<CopyRenderer>("rd1");
+      DstMIBuilder.addRenderer<CopyRenderer>("rs1");
+      auto &_O0 = _0.addOperand(0, "rd2", 0);
+      _O0.addPredicate<RegisterBankOperandMatcher>(GPR);
+      RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, 1, GPR);
+      auto &_O1 = _2.addOperand(0, "rd1", 0);
+      _O1.addPredicate<RegisterBankOperandMatcher>(GPR);
+      RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, 0, GPR);
+      RM.addAction<MarkEraseInstAction>(RM.getInsnVarID(_2));
+      unsigned RootInsnID = RM.getInsnVarID(_0);
+      RM.addAction<EraseInstAction>(RootInsnID);
+      Rules.push_back(std::move(RM));
+      postProcessRule(Rules.back());
+    }*/
+    /*if (0) for (int R_0 = 0; R_0 < 2; R_0++) {
+      RuleMatcher RM{Locs};
+      RuleMatcherScores[RM.getRuleID()] = 16;
+      RM.addRequiredFeature(RK.getDef("HasVendorXCValu"));
+      RM.addRequiredFeature(RK.getDef("IsRV32"));
+      InstructionMatcher &_0 = RM.addInstructionMatcher("");
+      _0.addPredicate<InstructionOpcodeMatcher>(AddOrPtrAdd);
+      auto &_1 = _0.addOperand((1 + (R_0 + 0) % 2), "", 0);
+      auto &_2 =
+          (**(_1.addPredicate<OtherUseInstructionOperandMatcher>(1, RM, "")))
+              .getInsnMatcher();
+      _2.addPredicate<InstructionOpcodeMatcher>(
+          &Target.getInstruction(RK.getDef("G_LOAD")));
+      _2.addPredicate<AtomicOrderingMMOPredicateMatcher>("NotAtomic");
+      _2.addPredicate<MemorySizePredicateMatcher>(0, 4);
+      auto &_3 = _2.addOperand(1, "rs1", 0);
+      _3.addPredicate<PointerToAnyOperandMatcher>(0);
+      //_3.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+      _3.addPredicate<RegisterBankOperandMatcher>(GPR);
+      auto &_4 = _0.addOperand((1 + (R_0 + 1) % 2), "", 0);
+      _4.addPredicate<ConstantIntOperandMatcher>(4);
+      RM.addAction<CheckSafeToMoveInstAction>(1);
+      auto OutputInstID = RM.allocateOutputInsnID();
+      auto &DstI = Target.getInstruction(RK.getDef("DUALADD_"));
+      auto &DstMIBuilder = RM.addAction<BuildMIAction>(OutputInstID, &DstI);
+      DstMIBuilder.addRenderer<CopyRenderer>("rd2");
+      DstMIBuilder.addRenderer<CopyRenderer>("rd1");
+      DstMIBuilder.addRenderer<CopyRenderer>("rs1");
+      auto &_O0 = _0.addOperand(0, "rd1", 0);
+      _O0.addPredicate<RegisterBankOperandMatcher>(GPR);
+      RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, 0, GPR);
+      auto &_O1 = _2.addOperand(0, "rd2", 0);
+      _O1.addPredicate<RegisterBankOperandMatcher>(GPR);
+      RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, 1, GPR);
+      RM.addAction<MarkEraseInstAction>(RM.getInsnVarID(_2));
+      unsigned RootInsnID = RM.getInsnVarID(_0);
+      RM.addAction<EraseInstAction>(RootInsnID);
+      Rules.push_back(std::move(RM));
+      postProcessRule(Rules.back());
+    }*/
+
+    #include "../../core_descs/MultiOutput.inc"
+  }
   // Look through the SelectionDAG patterns we found, possibly emitting some.
   for (const PatternToMatch &Pat : CGP.ptms()) {
     ++NumPatternTotal;
@@ -2456,6 +2623,65 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
     postProcessRule(Rules.back());
   }
 
+  /*if (Target.getName() == "RISCV" && 0) {
+    std::vector Locs = {SMLoc{}};
+    RuleMatcher RM{Locs};
+    RM.addAction<DebugCommentAction>("hiii");
+    InstructionMatcher &InsnMatcher = RM.addInstructionMatcher("");
+    InsnMatcher.addPredicate<InstructionOpcodeMatcher>(
+        &Target.getInstruction(RK.getDef("G_ADD")));
+
+    OperandMatcher &OM0 = InsnMatcher.addOperand(0, "rd", 8);
+    OperandMatcher &OM1 = InsnMatcher.addOperand(1, "rd_wb", 8);
+    OperandMatcher &OM2 = InsnMatcher.addOperand(2, "", 8);
+    // OperandMatcher& OM3 = InsnMatcher.addOperand(3, "rd_wb", 4);
+
+    // or OperandMatcher::addTypeCheckPredicate
+    OM0.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+    OM1.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+    //OM2.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+
+    auto &RecClasses = Target.getRegBank().getRegClasses();
+    auto GPRIt = std::find_if(
+        RecClasses.begin(), RecClasses.end(),
+        [](CodeGenRegisterClass &RC) { return RC.getName() == "GPR"; });
+    assert(GPRIt != RecClasses.end() && "no GPR reg class");
+    CodeGenRegisterClass& GPR = *GPRIt;
+
+    OM0.addPredicate<RegisterBankOperandMatcher>(GPR);
+    OM1.addPredicate<RegisterBankOperandMatcher>(GPR);
+    //OM2.addPredicate<RegisterBankOperandMatcher>(GPR);
+
+    auto IM2 =
+  OM2.addPredicate<InstructionOperandMatcher>(InsnMatcher.getRuleMatcher(),
+  ""); if (!IM2) abort(); auto &OP1InsnMatcher = (**IM2).getInsnMatcher();
+    OP1InsnMatcher.addPredicate<InstructionOpcodeMatcher>(&Target.getInstruction(RK.getDef("G_ADD")));
+
+    OperandMatcher &OM20 = OP1InsnMatcher.addOperand(0, "", 8);
+    OperandMatcher &OM21 = OP1InsnMatcher.addOperand(1, "rs1", 8);
+    OperandMatcher &OM22 = OP1InsnMatcher.addOperand(2, "rs2", 8);
+    OM20.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+    OM21.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+    OM22.addPredicate<LLTOperandMatcher>(LLT::scalar(32));
+    OM20.addPredicate<RegisterBankOperandMatcher>(GPR);
+    OM21.addPredicate<RegisterBankOperandMatcher>(GPR);
+    OM22.addPredicate<RegisterBankOperandMatcher>(GPR);
+
+    auto &DstI = Target.getInstruction(RK.getDef("ADD3_"));
+    auto &DstMIBuilder =
+        RM.addAction<BuildMIAction>(RM.allocateOutputInsnID(), &DstI);
+    DstMIBuilder.addRenderer<CopyRenderer>(DstI.Operands[0].Name);
+    DstMIBuilder.addRenderer<CopyRenderer>(DstI.Operands[1].Name);
+    DstMIBuilder.addRenderer<CopyRenderer>(DstI.Operands[2].Name);
+    DstMIBuilder.addRenderer<CopyRenderer>(DstI.Operands[3].Name);
+    // DstMIBuilder.addRenderer<CopyRenderer>("abc");
+
+    unsigned RootInsnID = RM.getInsnVarID(InsnMatcher);
+    RM.addAction<EraseInstAction>(RootInsnID);
+
+    Rules.push_back(std::move(RM));
+  }*/
+
   // Comparison function to order records by name.
   auto OrderByName = [](const Record *A, const Record *B) {
     return A->getName() < B->getName();
@@ -2476,8 +2702,8 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
   CustomRendererFns.erase(llvm::unique(CustomRendererFns),
                           CustomRendererFns.end());
 
-  // Create a table containing the LLT objects needed by the matcher and an enum
-  // for the matcher to reference them with.
+  // Create a table containing the LLT objects needed by the matcher and an
+  // enum for the matcher to reference them with.
   std::vector<LLTCodeGen> TypeObjects;
   append_range(TypeObjects, KnownTypes);
   llvm::sort(TypeObjects);

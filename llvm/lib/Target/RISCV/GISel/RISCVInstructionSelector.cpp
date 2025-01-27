@@ -506,6 +506,11 @@ static void getOperandsForBranch(Register CondReg, MachineRegisterInfo &MRI,
   return;
 }
 
+static bool selectPre(MachineInstr &MI)
+{
+  return false;
+}
+
 bool RISCVInstructionSelector::select(MachineInstr &MI) {
   MachineBasicBlock &MBB = *MI.getParent();
   MachineFunction &MF = *MBB.getParent();
