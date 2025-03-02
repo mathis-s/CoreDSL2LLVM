@@ -170,11 +170,8 @@ void promote_lvalue(llvm::IRBuilder<> &build, Value &v) {
 static void fit_to_size(Value &v, llvm::IRBuilder<> &build) {
   bool sExt = v.isSigned;
   auto &ctx = build.getContext();
-  // To give LLVM an easier time, generate
-  // expressions with power-of-two bit widths
 
-  int bitWidth2 = ceil_to_pow2(v.bitWidth);
-  llvm::Type *newType = llvm::Type::getIntNTy(ctx, bitWidth2);
+  llvm::Type *newType = llvm::Type::getIntNTy(ctx, v.bitWidth);
 
   if (newType->getIntegerBitWidth() >
       (v.isLValue ? v.bitWidth : v.ll->getType()->getIntegerBitWidth()))
@@ -183,7 +180,6 @@ static void fit_to_size(Value &v, llvm::IRBuilder<> &build) {
   else if (newType->getIntegerBitWidth() <
            (v.isLValue ? v.bitWidth : v.ll->getType()->getIntegerBitWidth()))
     v.ll = build.CreateTrunc(v.ll, newType);
-  // v.bitWidth = bitWidth2;
 }
 
 Value gen_subscript(TokenStream &ts, llvm::Function *func,
@@ -226,12 +222,12 @@ Value gen_subscript(TokenStream &ts, llvm::Function *func,
     }
   }
 
+  if (auto asConst = llvm::dyn_cast<llvm::ConstantInt>(lower.ll))
+    if (asConst->getLimitedValue() % len != 0)
+      promote_lvalue(build, left);
+
   if (left.isLValue && (len == 8 || len == 16 || len == 32 || len == xlen) &&
       left.bitWidth == xlen) {
-    if (auto asConst = llvm::dyn_cast<llvm::ConstantInt>(lower.ll))
-      if (asConst->getLimitedValue() % len != 0)
-        error("unaligned register slice as lvalue", ts);
-
     auto offset = build.CreateUDiv(
         lower.ll, llvm::ConstantInt::get(lower.ll->getType(), len));
     offset = build.CreateAnd(
@@ -244,6 +240,9 @@ Value gen_subscript(TokenStream &ts, llvm::Function *func,
     left.bitWidth = len;
     left.isLValue = true;
   } else if (left.bitWidth == xlen &&
+             (!llvm::isa<llvm::ConstantInt>(lower.ll) ||
+              (llvm::cast<llvm::ConstantInt>(lower.ll)->getLimitedValue() %
+               len) == 0) &&
              (len == 8 || len == 16 || (len == 32 && xlen != 32))) {
     promote_lvalue(build, left);
 
@@ -251,9 +250,7 @@ Value gen_subscript(TokenStream &ts, llvm::Function *func,
     left.ll = build.CreateBitCast(
         left.ll, llvm::VectorType::get(llvm::Type::getIntNTy(ctx, len), ec));
 
-    upper.bitWidth = left.bitWidth;
-    fit_to_size(upper, build);
-    auto *idx = build.CreateUDiv(upper.ll, llvm::ConstantInt::get(regT, len));
+    auto *idx = build.CreateUDiv(lower.ll, llvm::ConstantInt::get(regT, len));
 
     left.ll = build.CreateExtractElement(left.ll, idx);
     left.bitWidth = len;
