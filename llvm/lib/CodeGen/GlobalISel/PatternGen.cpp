@@ -656,10 +656,8 @@ struct RegisterNode : public PatternNode {
 
     // Full-Size Register Operands
     if (Size == 32 || Size == 64) {
-      std::string Str;
+      std::string Str = "GPR:$" + std::string(Name);
       PrintType |= Size == 32 && XLen == 64;
-      if ((Type.isScalar() && Type.getSizeInBits() == XLen) || Type.isPointer())
-        Str = "GPR:$" + std::string(Name);
       if (PrintType)
         return "(" + TypeStr + " " + Str + ")";
       return Str;
