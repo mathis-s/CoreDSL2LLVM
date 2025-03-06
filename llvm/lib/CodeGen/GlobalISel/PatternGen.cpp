@@ -156,16 +156,14 @@ struct PatternError {
 std::string Errors[] = {"success",        "multiple blocks", "expected return",
                         "expected store", "load format",     "immediate format",
                         "format",         "multiple stores"};
-llvm::Statistic *ErrorStats[] = {
-    nullptr,
-    &PatternGenNumErrorMultipleBlocks,
-    &PatternGenNumErrorFormatReturn,
-    &PatternGenNumErrorFormatStore,
-    &PatternGenNumErrorFormatLoad,
-    &PatternGenNumErrorFormatImm,
-    &PatternGenNumErrorFormat,
-    &PatternGenNumErrorMultipleStores
-};
+llvm::Statistic *ErrorStats[] = {nullptr,
+                                 &PatternGenNumErrorMultipleBlocks,
+                                 &PatternGenNumErrorFormatReturn,
+                                 &PatternGenNumErrorFormatStore,
+                                 &PatternGenNumErrorFormatLoad,
+                                 &PatternGenNumErrorFormatImm,
+                                 &PatternGenNumErrorFormat,
+                                 &PatternGenNumErrorMultipleStores};
 
 static const std::unordered_map<unsigned, std::string> CmpStr = {
     {CmpInst::Predicate::ICMP_EQ, "SETEQ"},
@@ -619,19 +617,15 @@ struct ConstantNode : public PatternNode {
 struct RegisterNode : public PatternNode {
 
   StringRef Name;
-
-  int Offset;
   int Size;
   bool Sext;
-  bool VectorExtract =
-      false; // TODO: set based on type of this register in other uses
 
   size_t RegIdx;
 
-  RegisterNode(LLT Type, StringRef Name, size_t RegIdx, bool IsImm, int Offset,
-               int Size, bool Sext)
-      : PatternNode(PN_Register, Type, IsImm), Name(Name), Offset(Offset),
-        Size(Size), Sext(Sext), RegIdx(RegIdx) {}
+  RegisterNode(LLT Type, StringRef Name, size_t RegIdx, bool IsImm, int Size,
+               bool Sext)
+      : PatternNode(PN_Register, Type, IsImm), Name(Name), Size(Size),
+        Sext(Sext), RegIdx(RegIdx) {}
 
   std::string patternString() override {
     std::string TypeStr = lltToString(Type);
@@ -639,24 +633,13 @@ struct RegisterNode : public PatternNode {
 
     if (IsImm) {
       // Immediate Operands
-      assert(Offset == 0 && "immediates must have offset 0");
       return ("(" + RegT + " ") + (Sext ? "simm" : "uimm") +
              std::to_string(Size) + ":$" + std::string(Name) + ")";
     }
 
-    // Full-Size Register Operands
-    if ((uint64_t)Size == XLen) {
-      std::string Str;
-      if ((Type.isScalar() && Type.getSizeInBits() == XLen) || Type.isPointer())
-        Str = "GPR:$" + std::string(Name);
-      if (PrintType)
-        return "(" + TypeStr + " " + Str + ")";
-      return Str;
-      abort();
-    }
-
     // Vector Types (currently rv32 only)
-    if ((uint64_t)Size == 32 && XLen == 32) {
+    if (Type.isFixedVector()) {
+      assert((uint64_t)Size == 32 && XLen == 32);
       std::string Str;
       if (Type.isFixedVector() && Type.getSizeInBits() == 32 &&
           Type.getElementType().isScalar() &&
@@ -669,26 +652,12 @@ struct RegisterNode : public PatternNode {
       if (PrintType)
         return "(" + TypeStr + " " + Str + ")";
       return Str;
-      abort();
     }
 
-    // Sub-Register Operands
-    if (Size == 8 || Size == 16 || (Size == 32 && XLen == 64)) {
-      std::string Str;
-      if (VectorExtract) {
-        Str = std::string("(i32 (vector_extract GPR32V") +
-              ((Size == 16) ? "2" : "4") + ":$" + std::string(Name) + ", " +
-              std::to_string((Size == 16) ? (Offset / 2) : (Offset)) + "))";
-      } else {
-        // 32-bit is a supported type, so we can cast instead of shift/mask
-        if (Offset == 0 && Size == 32)
-          Str = "(i32 GPR:$" + std::string(Name) + ")";
-        else if (Offset == 0)
-          Str = "GPR:$" + std::string(Name);
-        else
-          Str = ("(" + RegT + " ") + "(srl GPR:$" + std::string(Name) +
-                (", (" + RegT + " ") + std::to_string(Offset * 8) + ")))";
-      }
+    // Full-Size Register Operands
+    if (Size == 32 || Size == 64) {
+      std::string Str = "GPR:$" + std::string(Name);
+      PrintType |= Size == 32 && XLen == 64;
       if (PrintType)
         return "(" + TypeStr + " " + Str + ")";
       return Str;
@@ -979,14 +948,38 @@ static PatternOrError traverseRegLoad(MachineRegisterInfo &MRI,
   if (Field == nullptr)
     return pError(FORMAT_LOAD, AddrI);
 
-  PatternArgs[Idx].Llt = MRI.getType(Cur.getOperand(0).getReg());
+  auto Type = MRI.getType(Cur.getOperand(0).getReg());
+  PatternArgs[Idx].Llt = Type;
   PatternArgs[Idx].ArgTypeStr = lltToRegTypeStr(PatternArgs[Idx].Llt);
   PatternArgs[Idx].In = true;
 
   assert(Cur.getOperand(0).isReg() && "expected register");
-  auto Node = std::make_unique<RegisterNode>(
-      MRI.getType(Cur.getOperand(0).getReg()), Field->ident, Idx, false,
-      ReadOffset, ReadSize, false);
+  std::unique_ptr<PatternNode> Node = std::make_unique<RegisterNode>(
+      Type, Field->ident, Idx, false, Type.getSizeInBits(), false);
+
+  bool SizeMismatch = (int)Type.getSizeInBits() != ReadSize;
+
+  if (Cur.getOpcode() == TargetOpcode::G_ZEXTLOAD && SizeMismatch) {
+    if (ReadOffset != 0)
+      Node = std::make_unique<BinopNode>(
+          Type, TargetOpcode::G_LSHR, std::move(Node),
+          std::make_unique<ConstantNode>(Type, ReadOffset * 8));
+    if ((uint64_t)(ReadSize + ReadOffset * 8) < XLen) {
+      Node = std::make_unique<BinopNode>(
+          Type, TargetOpcode::G_AND, std::move(Node),
+          std::make_unique<ConstantNode>(Type, (1UL << ReadSize) - 1));
+    }
+  } else if (Cur.getOpcode() == TargetOpcode::G_SEXTLOAD && SizeMismatch) {
+    int Shamt = XLen - ReadSize - ReadOffset * 8;
+    auto Left = Shamt == 0 ? std::move(Node)
+                           : std::make_unique<BinopNode>(
+                                 Type, TargetOpcode::G_SHL, std::move(Node),
+                                 std::make_unique<ConstantNode>(Type, Shamt));
+
+    Node = std::make_unique<BinopNode>(
+        Type, TargetOpcode::G_ASHR, std::move(Left),
+        std::make_unique<ConstantNode>(Type, XLen - ReadSize));
+  }
 
   return PPattern(std::move(Node));
 }
@@ -1150,11 +1143,10 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
         return std::make_pair(FORMAT_IMM, nullptr);
 
       assert(Cur.getOperand(0).isReg() && "expected register");
-      return std::make_pair(SUCCESS,
-                            std::make_unique<RegisterNode>(
-                                MRI.getType(Cur.getOperand(0).getReg()),
-                                Field->ident, Idx, true, 0, Field->len,
-                                Field->type & CDSLInstr::SIGNED));
+      return std::make_pair(
+          SUCCESS, std::make_unique<RegisterNode>(
+                       MRI.getType(Cur.getOperand(0).getReg()), Field->ident,
+                       Idx, true, Field->len, Field->type & CDSLInstr::SIGNED));
     }
 
     // Else COPY is just a pass-through.
@@ -1319,9 +1311,8 @@ static PatternOrError generatePattern(MachineFunction &MF) {
   Instrs++;
 
   for (; Instrs != InstrsEnd; Instrs++)
-    if (Instrs->getOpcode() == TargetOpcode::G_STORE)
-    {
-      MachineInstr& MI = *Instrs;
+    if (Instrs->getOpcode() == TargetOpcode::G_STORE) {
+      MachineInstr &MI = *Instrs;
       return pError(PatternErrorT::MULTIPLE_STORES, &MI);
     }
 
