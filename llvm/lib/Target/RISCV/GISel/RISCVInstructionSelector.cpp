@@ -644,7 +644,7 @@ bool RISCVInstructionSelector::select(MachineInstr &MI) {
     return selectCopy(MI);
   case TargetOpcode::G_BITCAST:
     // return selectCopy2(I, TII, MRI, TRI, RBI);
-    return selectCopy(MI, MRI);
+    return selectCopy(MI);
   case TargetOpcode::G_CONSTANT: {
     Register DstReg = MI.getOperand(0).getReg();
     int64_t Imm = MI.getOperand(1).getCImm()->getSExtValue();
