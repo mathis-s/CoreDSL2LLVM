@@ -481,11 +481,9 @@ int runOptPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr,
   initializeVectorization(*Registry);
   initializeScalarizeMaskedMemIntrinLegacyPassPass(*Registry);
   initializeExpandReductionsPass(*Registry);
-  initializeExpandVectorPredicationPass(*Registry);
   initializeHardwareLoopsLegacyPass(*Registry);
   initializeTransformUtils(*Registry);
   initializeReplaceWithVeclibLegacyPass(*Registry);
-  initializeTLSVariableHoistLegacyPassPass(*Registry);
 
   // Initialize debugging passes.
   initializeScavengerTestPass(*Registry);
@@ -552,9 +550,10 @@ int runPatternGenPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr) {
     raw_svector_ostream SVOS{Out};
     raw_pwrite_stream *OS = &SVOS;
 
-    LLVMTargetMachine &LLVMTM = static_cast<LLVMTargetMachine &>(*Target);
+    // LLVMTargetMachine &LLVMTM = static_cast<LLVMTargetMachine &>(*Target);
     MachineModuleInfoWrapperPass *MMIWP =
-        new MachineModuleInfoWrapperPass(&LLVMTM);
+        new MachineModuleInfoWrapperPass(Target.get());
+        // new MachineModuleInfoWrapperPass(&LLVMTM);
 
     // Construct a custom pass pipeline that starts after instruction
     // selection.
@@ -563,7 +562,8 @@ int runPatternGenPipeline(llvm::Module *M, bool Is64Bit, std::string Mattr) {
       assert(0 && "target does not support generation of this file type");
     }
 
-    const_cast<TargetLoweringObjectFile *>(LLVMTM.getObjFileLowering())
+    // const_cast<TargetLoweringObjectFile *>(LLVMTM.getObjFileLowering())
+    const_cast<TargetLoweringObjectFile *>(Target->getObjFileLowering())
         ->Initialize(MMIWP->getMMI().getContext(), *Target);
     if (MIR) {
       assert(MMIWP && "Forgot to create MMIWP?");
