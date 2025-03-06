@@ -807,6 +807,7 @@ def SF_VCIX_STATE : RISCVReg<0, "sf.vcix_state">;
 def : RISCVRegisterClass<[XLenVT], 32, (add SF_VCIX_STATE)> {
   let RegInfos = XLenRI;
   let isAllocatable = 0;
+}
 
 // LLVMGEN: CORE-V SIMD Register Info
 def PulpV2 : RegisterClass<"RISCV", [v2i16], 32, (add
