@@ -1346,7 +1346,7 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
     }
     pop_cur(ts, BitwiseConcat);
   }
-  uint size = 48 - offset;
+  uint8_t size = 48 - offset;
   instr.size = size;
 
   // Rather than splitting up the constant bits of the instruction into multiple
