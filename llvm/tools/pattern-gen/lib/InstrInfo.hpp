@@ -40,6 +40,7 @@ struct CDSLInstr
         FieldType type;
     };
 
+    uint8_t size;
     std::string name;
     std::string mnemonic;
     std::string argString;

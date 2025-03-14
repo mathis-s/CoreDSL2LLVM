@@ -1329,6 +1329,8 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
       syntax_error(ts);
     }
     if (pop_cur_if(ts, Semicolon)) {
+      uint size = 48 - offset;
+      instr.size = size;
       if (offset != 0) {
         if (offset != 16) {
           error("instruction length is not 32 or 48 bits", ts);
