@@ -1191,7 +1191,10 @@ void ParseOperands(TokenStream &ts, CDSLInstr &instr) {
       bool allowArg = true;
 
       auto ident = pop_cur(ts, Identifier).ident;
-      auto iter = attrMap.find(ident.str);
+      std::string attrName = std::string{ident.str};
+      std::transform(attrName.begin(), attrName.end(), attrName.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+      auto iter = attrMap.find(attrName);
       if (iter != attrMap.end()) {
         uint op = iter->getSecond().first;
         allowArg = iter->getSecond().second;
