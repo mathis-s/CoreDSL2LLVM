@@ -15,6 +15,7 @@ struct CDSLInstr
         uint8_t len;
         uint8_t dstOffset;
         uint8_t srcOffset;
+        uint32_t val;
     };
 
     enum FieldType
