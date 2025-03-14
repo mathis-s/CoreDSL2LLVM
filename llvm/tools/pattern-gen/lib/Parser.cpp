@@ -1260,7 +1260,7 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
   pop_cur(ts, EncodingKeyword);
   pop_cur(ts, Colon);
 
-  uint offset = 32;
+  uint offset = 48;
   uint preDefIdx = instr.fields.size();
 
   while (1) {
@@ -1329,8 +1329,19 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
       syntax_error(ts);
     }
     if (pop_cur_if(ts, Semicolon)) {
-      if (offset != 0)
-        error("instruction length is not 32 bits", ts);
+      if (offset != 0) {
+        if (offset != 16) {
+          error("instruction length is not 32 or 48 bits", ts);
+        }
+        // Shift the field offsets by 16 bits
+        for (auto &frag : instr.frags)
+          if (frag.idx == 255) {
+            frag.srcOffset = frag.srcOffset - offset;
+            frag.dstOffset = frag.dstOffset - offset;
+          } else {
+            frag.dstOffset = frag.dstOffset - offset;
+          }
+      }
       break;
     }
     pop_cur(ts, BitwiseConcat);
