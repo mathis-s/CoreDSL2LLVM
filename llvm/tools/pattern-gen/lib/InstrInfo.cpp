@@ -5,13 +5,9 @@
 std::string EncodingToTablgen(CDSLInstr const& instr)
 {
     std::stringstream s;
-    std::string opcodeString = instr.name;
-    std::replace(opcodeString.begin(), opcodeString.end(), '_', '.');
-    std::transform(opcodeString.begin(), opcodeString.end(), opcodeString.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
 
     s << "class RVInst_" << instr.name << "<dag outs, dag ins>"
-      << " : RVInst<outs, ins, \"" << opcodeString << "\", \"" << instr.argString << "\", [], InstFormatOther> {\n";
+      << " : RVInst<outs, ins, \"" << instr.mnemonic << "\", \"" << instr.argString << "\", [], InstFormatOther> {\n";
 
     for (auto const& f : instr.fields)
         if (f.type & (CDSLInstr::FieldType::NON_CONST))

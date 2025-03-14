@@ -1332,9 +1332,6 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
 }
 
 void ParseArguments(TokenStream &ts, CDSLInstr &instr) {
-  pop_cur(ts, AssemblyKeyword);
-  pop_cur(ts, Colon);
-
   auto str = std::string(pop_cur(ts, StringLiteral).strLit.str);
 
   // To support old-style implicit field definitions, we (also) use the argument
@@ -1357,6 +1354,28 @@ void ParseArguments(TokenStream &ts, CDSLInstr &instr) {
   }
 
   instr.argString = str;
+}
+
+void ParseAssembly(TokenStream &ts, CDSLInstr &instr) {
+  pop_cur(ts, AssemblyKeyword);
+  pop_cur(ts, Colon);
+
+  std::string mnemonic = instr.name;
+  std::replace(mnemonic.begin(), mnemonic.end(), '_', '.');
+  std::transform(mnemonic.begin(), mnemonic.end(), mnemonic.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+
+  if (pop_cur_if(ts, CBrOpen)) {
+    mnemonic = std::string(pop_cur(ts, StringLiteral).strLit.str);
+    pop_cur(ts, Comma);
+    ParseArguments(ts, instr);
+    pop_cur(ts, CBrClose);
+  } else {
+    ParseArguments(ts, instr);
+  }
+
+  instr.mnemonic = mnemonic;
+
   pop_cur(ts, Semicolon);
 }
 
@@ -1473,7 +1492,7 @@ std::vector<CDSLInstr> ParseCoreDSL2(TokenStream &ts, bool is64Bit,
       if (ts.Peek().type == OperandsKeyword)
         ParseOperands(ts, instr);
       ParseEncoding(ts, instr);
-      ParseArguments(ts, instr);
+      ParseAssembly(ts, instr);
       ParseBehaviour(ts, instr, mod, ident);
 
       pop_cur(ts, CBrClose);
