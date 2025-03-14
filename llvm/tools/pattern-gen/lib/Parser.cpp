@@ -1329,8 +1329,6 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
       syntax_error(ts);
     }
     if (pop_cur_if(ts, Semicolon)) {
-      uint size = 48 - offset;
-      instr.size = size;
       if (offset != 0) {
         if (offset != 16) {
           error("instruction length is not 32 or 48 bits", ts);
@@ -1348,12 +1346,14 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
     }
     pop_cur(ts, BitwiseConcat);
   }
+  uint size = 48 - offset;
+  instr.size = size;
 
   // Rather than splitting up the constant bits of the instruction into multiple
-  // fields, we use one trailing constant field of size 32. FieldFragments can
+  // fields, we use one trailing constant field of size 32/48. FieldFragments can
   // index into relevant sections of this single field.
   instr.fields.push_back(CDSLInstr::Field{
-      .len = 32, .constV = 0, .type = CDSLInstr::FieldType::CONST});
+      .len = size, .constV = 0, .type = CDSLInstr::FieldType::CONST});
   if (instr.fields.size() > 255)
     error("too many instruction fields", ts);
   uint8_t constIdx = instr.fields.size() - 1;
