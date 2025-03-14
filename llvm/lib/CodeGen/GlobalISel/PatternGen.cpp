@@ -65,6 +65,7 @@ STATISTIC(PatternGenNumErrorFormatLoad, "Errors of type: FORMAT_LOAD");
 STATISTIC(PatternGenNumErrorFormatImm, "Errors of type: FORMAT_IMM");
 STATISTIC(PatternGenNumErrorFormat, "Errors of type: FORMAT");
 STATISTIC(PatternGenNumErrorMultipleStores, "Errors of type: MULTIPLE STORES");
+STATISTIC(PatternGenNumErrorUnusedOperand, "Errors of type: UNUSED_OPERAND");
 
 #ifdef LLVM_GISEL_COV_PREFIX
 static cl::opt<std::string>
@@ -142,7 +143,8 @@ enum PatternErrorT {
   FORMAT_LOAD,
   FORMAT_IMM,
   FORMAT,
-  MULTIPLE_STORES
+  MULTIPLE_STORES,
+  UNUSED_OPERANDS
 };
 struct PatternError {
   PatternErrorT Type;
@@ -163,7 +165,8 @@ llvm::Statistic *ErrorStats[] = {nullptr,
                                  &PatternGenNumErrorFormatLoad,
                                  &PatternGenNumErrorFormatImm,
                                  &PatternGenNumErrorFormat,
-                                 &PatternGenNumErrorMultipleStores};
+                                 &PatternGenNumErrorMultipleStores,
+                                 &PatternGenNumErrorUnusedOperand};
 
 static const std::unordered_map<unsigned, std::string> CmpStr = {
     {CmpInst::Predicate::ICMP_EQ, "SETEQ"},
@@ -1366,6 +1369,12 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   std::string OutsString;
   std::string InsString;
   for (size_t I = 0; I < CurInstr->fields.size() - 1; I++) {
+    if (!PatternArgs[I].In && !PatternArgs[I].Out) {
+        llvm::errs() << "Pattern Generation failed for " << MF.getName() << ": "
+                     << "Operand '" << CurInstr->fields[I].ident << "' not used in pattern!\n";
+        ++PatternGenNumErrorUnusedOperand;
+        return true;
+    }
     if (PatternArgs[I].In) {
       InsString += PatternArgs[I].ArgTypeStr + ":$" +
                    std::string(CurInstr->fields[I].ident) + ", ";
