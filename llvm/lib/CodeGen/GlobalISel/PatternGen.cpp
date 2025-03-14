@@ -66,6 +66,7 @@ STATISTIC(PatternGenNumErrorFormatImm, "Errors of type: FORMAT_IMM");
 STATISTIC(PatternGenNumErrorFormat, "Errors of type: FORMAT");
 STATISTIC(PatternGenNumErrorMultipleStores, "Errors of type: MULTIPLE STORES");
 STATISTIC(PatternGenNumErrorUnusedOperand, "Errors of type: UNUSED_OPERAND");
+STATISTIC(PatternGenNumErrorOperandMissmatch, "Errors of type: OPERAND_MISSMATCH");
 
 #ifdef LLVM_GISEL_COV_PREFIX
 static cl::opt<std::string>
@@ -1369,12 +1370,30 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   std::string OutsString;
   std::string InsString;
   for (size_t I = 0; I < CurInstr->fields.size() - 1; I++) {
+    // TODO: move to helper func
+
+    // handle unused operands
     if (!PatternArgs[I].In && !PatternArgs[I].Out) {
         llvm::errs() << "Pattern Generation failed for " << MF.getName() << ": "
                      << "Operand '" << CurInstr->fields[I].ident << "' not used in pattern!\n";
         ++PatternGenNumErrorUnusedOperand;
         return true;
     }
+
+    // check for missmatches between operands
+    if ((CurInstr->fields[I].type & CDSLInstr::IN) && !PatternArgs[I].In) {
+      llvm::errs() << "Pattern Generation failed for " << MF.getName() << ": "
+                   << "Operand '" << CurInstr->fields[I].ident << "' should be an input!\n";
+      ++PatternGenNumErrorOperandMissmatch;
+      return true;
+    }
+    if ((CurInstr->fields[I].type & CDSLInstr::OUT) && !PatternArgs[I].Out) {
+      llvm::errs() << "Pattern Generation failed for " << MF.getName() << ": "
+                   << "Operand '" << CurInstr->fields[I].ident << "' should be an output!\n";
+      ++PatternGenNumErrorOperandMissmatch;
+      return true;
+    }
+
     if (PatternArgs[I].In) {
       InsString += PatternArgs[I].ArgTypeStr + ":$" +
                    std::string(CurInstr->fields[I].ident) + ", ";
