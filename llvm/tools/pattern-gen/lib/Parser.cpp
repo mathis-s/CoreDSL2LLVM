@@ -1371,7 +1371,7 @@ void ParseArguments(TokenStream &ts, CDSLInstr &instr) {
     strNew =
         std::regex_replace(str, std::regex("\\{" + fstr + "\\}"), "$" + fstr);
     if (strNew != str)
-      f.type = (CDSLInstr::FieldType)(f.type | CDSLInstr::FieldType::IMM);
+      f.type = (CDSLInstr::FieldType)(f.type | CDSLInstr::FieldType::IMM | CDSLInstr::FieldType::IN);
     str = strNew;
   }
 
