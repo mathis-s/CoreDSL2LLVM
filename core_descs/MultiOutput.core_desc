@@ -1,12 +1,12 @@
 
-/*DUALADD {
+DUALADD {
     encoding: 7'b1 :: rs1[4:0] :: rd2[4:0] :: 3'b010 :: rd1[4:0] :: 7'b0000011;
     assembly:"{name(rd1)}, {name(rd2)}, {name(rs1)}";
     behavior: {
-        X[rd2] = MEM32[X[rs1]];
-        X[rd1] = X[rs1] + 4;
+        X[rd1] += X[rs1];
+        X[rd2] += X[rs1];
     }
-}*/
+}
 
 LOAD_ACC {
     encoding: 7'b1 :: rs1[4:0] :: rd2[4:0] :: 3'b010 :: rd1[4:0] :: 7'b0000011;
