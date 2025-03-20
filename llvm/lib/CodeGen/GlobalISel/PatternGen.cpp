@@ -37,6 +37,7 @@
 #include "llvm/MC/TargetRegistry.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/TypeSize.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Target/TargetMachine.h"
@@ -1365,6 +1366,10 @@ struct PatternExtractor {
   }
 
   PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
+
+    if (Cur.getOpcode() == TargetOpcode::G_CONSTANT)
+      return traverse_impl(MRI, Cur);
+
     if (auto Iter = Handled.find(&Cur); Iter != Handled.end()) {
       // If the value we're looking at has been processed before, we insert a
       // Fork+ForkOther pair to re-use the existing value without duplication.
@@ -1527,7 +1532,7 @@ private:
   RootNode *Root;
   size_t CurIdx = 1;
 
-  bool Error = 0;
+  std::optional<std::string> Error = std::nullopt;
 
 public:
   void process(RootNode *Root) {
@@ -1559,7 +1564,14 @@ public:
               ");\n";
   }
 
+  std::optional<std::string> getError() { return Error; }
+
   std::stringstream getOutput() {
+
+    if (MarkErase.size() != Root->Stores.size() - 1)
+      Error = "could not cover entire pattern. Do all results use at least one "
+              "common value?";
+
     if (Error)
       return std::stringstream{};
     finalize();
@@ -1791,6 +1803,7 @@ private:
 
       // Generate code to search downward until we arrive at Root.
       auto [OtherRoot, InstrOpIdx] = Downwards(OtherUse.Parent);
+      assert(OtherRoot != Root->Stores[0].second.get() && "cyclic dependence");
 
       process_impl(OtherRoot, Idx, InsnMatcher);
       BindOutputs.push_back(BindOutput{CurInstr->fields[InstrOpIdx].ident,
@@ -1832,7 +1845,7 @@ private:
     }
 
     default:
-      Error = 1;
+      Error = "unknown node";
       break;
 
       // case PatternNode::PN_NOp:
@@ -1905,10 +1918,13 @@ private:
 class ForkPermuter {
   RootNode *Root;
   std::vector<std::pair<ForkNode *, int>> Forks;
+  std::vector<PatternNode *> RootStack;
 
   void findForks(PatternNode *Cur) {
-    if (auto *AsFork = llvm::dyn_cast<ForkNode>(Cur))
+    if (auto *AsFork = llvm::dyn_cast<ForkNode>(Cur)) {
       Forks.push_back(std::make_pair(AsFork, 0));
+      findForks(AsFork->Value.get());
+    }
 
     if (auto *AsRoot = llvm::dyn_cast<RootNode>(Cur))
       for (auto &Store : AsRoot->Stores)
@@ -1916,6 +1932,22 @@ class ForkPermuter {
 
     for (auto &Op : Cur->getOperands())
       findForks(Op->get());
+  }
+
+  PatternNode *getRoot(PatternNode *Node) {
+    assert(Node->Parent);
+    if (llvm::isa<RootNode>(Node->Parent)) {
+      return Node;
+    }
+    return getRoot(Node->Parent);
+  }
+
+  void pushRoots() {
+    for (auto &Fork : Forks) {
+      auto *Root = getRoot(Fork.first);
+      if (llvm::find(RootStack, Root) == RootStack.end())
+        RootStack.push_back(Root);
+    }
   }
 
   PatternNode *findNewRoot(PatternNode *Node) {
@@ -1931,9 +1963,25 @@ class ForkPermuter {
 public:
   ForkPermuter(RootNode *Root) : Root(Root) { setup(); }
 
-  void setup() { findForks(Root); }
+  void setup() {
+    findForks(Root);
+    pushRoots();
+  }
 
   bool next() {
+
+    if (!RootStack.empty()) {
+      PatternNode *Cur = RootStack.back();
+      RootStack.pop_back();
+
+      auto It = llvm::find_if(
+          Root->Stores, [&](auto &Pair) { return Pair.second.get() == Cur; });
+      assert(It != Root->Stores.end());
+      std::swap(*It, *Root->Stores.begin());
+
+      return true;
+    }
+
     for (size_t i = 0; i < Forks.size(); i++) {
       auto *Fork = Forks[i].first;
       auto *ForkOther =
@@ -1946,21 +1994,15 @@ public:
         auto *ForkOtherOperand =
             *llvm::find_if(ForkOther->Parent->getOperands(),
                            [&](auto &Op) { return Op->get() == ForkOther; });
-        auto Temp = std::move(*ForkOperand);
-        *ForkOperand = std::move(*ForkOtherOperand);
-        *ForkOtherOperand = std::move(Temp);
 
         std::swap((*ForkOperand)->Parent, (*ForkOtherOperand)->Parent);
+        std::swap(*ForkOperand, *ForkOtherOperand);
       }
 
       Forks[i].second = (Forks[i].second + 1) % (Fork->OtherUses.size() + 1);
       if (Forks[i].second != 0) {
-        auto *NewRootStore = findNewRoot(Forks[i].first);
-        auto It = llvm::find_if(Root->Stores, [&](auto &Pair) {
-          return Pair.second.get() == NewRootStore;
-        });
-        std::swap(*It, *Root->Stores.begin());
-        return true;
+        pushRoots();
+        return next();
       }
     }
     return false;
@@ -1970,11 +2012,24 @@ public:
 void GenGISelTable(PatternNode *Root, std::ostream &Out) {
 
   ForkPermuter Permuter{llvm::cast<RootNode>(Root)};
+  int Patterns = 0;
+  int Success = 0;
   do {
     GISelTableBackend Backend{};
     Backend.process(llvm::cast<RootNode>(Root));
     Out << Backend.getOutput().str();
+    if (auto Err = Backend.getError()) {
+      llvm::errs() << "GISel pattern generation failed for permutation #"
+                   << Patterns << " of " << CurInstr->name << ": " << Err
+                   << "\n";
+    } else
+      Success++;
+    Patterns++;
   } while (Permuter.next());
+
+  llvm::outs() << "Generated " << Success << " out of " << Patterns
+               << " GISel pattern permutations for " << CurInstr->name << " ("
+               << ((Success * 100) / Patterns) << "%)\n";
 }
 
 bool PatternGen::runOnMachineFunction(MachineFunction &MF) {

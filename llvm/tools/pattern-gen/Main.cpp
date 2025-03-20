@@ -66,7 +66,7 @@ static cl::opt<int> XLen("riscv-xlen", cl::desc("RISC-V XLEN (32 or 64 bit)"),
 static cl::opt<bool>
     UseGISelTable("gisel-table",
                   cl::desc("Use GISel Table pattern backend (experimental)"),
-                  cl::init(true), cl::cat(ToolOptions));
+                  cl::init(false), cl::cat(ToolOptions));
 
 // Determine optimization level.
 static cl::opt<char>

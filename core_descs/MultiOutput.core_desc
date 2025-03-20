@@ -16,3 +16,23 @@ LOAD_ACC {
         X[rd1] = X[rs1] + 4;
     }
 }
+
+DOTP {
+    encoding: 7'b1 :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
+    assembly:"{name(rd)}, {name(rs1)}, {name(rs2)}";
+    behavior: {
+        X[rd] += MEM32[X[rs1]] * MEM32[X[rs2]];
+        X[rs1] += 4;
+        X[rs2] += 4;
+    }
+}
+
+UNPACK16 {
+    encoding: 7'b1 :: rs1[4:0] :: rd2[4:0] :: 3'b010 :: rd1[4:0] :: 7'b0000011;
+    assembly:"{name(rd1)}, {name(rd2)}, {name(rs1)}";
+    behavior: {
+        signed<32> temp = X[rs1];
+        X[rd1] = temp[16+:16];
+        X[rd2] = temp[0+:16];
+    }
+}

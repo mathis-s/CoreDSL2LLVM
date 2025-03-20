@@ -14,3 +14,12 @@ int acc(size_t n, int arr[n])
         acc += arr[i];
     return acc;
 }
+
+
+int dotp(size_t n, int a[n], int b[n])
+{
+    int acc = 0;
+    for (size_t i = 0; i < n; i++)
+        acc += a[i] * b[i];
+    return acc;
+}
