@@ -41,6 +41,7 @@ struct CDSLInstr
     };
 
     std::string name;
+    std::string mnemonic;
     std::string argString;
 
     llvm::SmallVector<Field, 4> fields;
