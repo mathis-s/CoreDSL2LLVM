@@ -1330,10 +1330,10 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
     }
     if (pop_cur_if(ts, Semicolon)) {
       if (offset != 0) {
-        if (offset != 16) {
-          error("instruction length is not 32 or 48 bits", ts);
+        if (offset != 16 && offset != 32) {
+          error("instruction length is not 16/32/48 bits", ts);
         }
-        // Shift the field offsets by 16 bits
+        // Shift the field offsets by 16/32 bits
         for (auto &frag : instr.frags)
           if (frag.idx == 255) {
             frag.srcOffset = frag.srcOffset - offset;

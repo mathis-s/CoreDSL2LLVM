@@ -7,7 +7,7 @@ std::string EncodingToTablgen(CDSLInstr const& instr)
     std::stringstream s;
 
     uint8_t size = instr.size;
-    std::string base = (size == 48 ? "RVInst48" : "RVInst");
+    std::string base = (size == 48 ? "RVInst48" : (size == 16 ? "RVInst16" : "RVInst"));
 
     s << "class RVInst_" << instr.name << "<dag outs, dag ins>"
       << " : " << base << "<outs, ins, \"" << instr.mnemonic << "\", \"" << instr.argString << "\", [], InstFormatOther> {\n";
