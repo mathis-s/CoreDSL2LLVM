@@ -1363,10 +1363,6 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
     return true;
   }
 
-  llvm::outs() << "Pattern for " << InstName << ": " << Node->patternString()
-               << '\n';
-  ++PatternGenNumPatternsGenerated;
-
   LLT OutType = LLT();
   std::string OutsString;
   std::string InsString;
@@ -1409,6 +1405,11 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
       OutType = PatternArgs[I].Llt;
     }
   }
+
+  llvm::outs() << "Pattern for " << InstName << ": " << Node->patternString()
+               << '\n';
+  ++PatternGenNumPatternsGenerated;
+
 
   InsString = InsString.substr(0, InsString.size() - 2);
   OutsString = OutsString.substr(0, OutsString.size() - 2);
