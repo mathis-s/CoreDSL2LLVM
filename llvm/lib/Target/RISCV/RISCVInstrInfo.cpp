@@ -1151,7 +1151,9 @@ bool RISCVInstrInfo::optimizeCondBranch(MachineInstr &MI) const {
     return false;
 
   RISCVCC::CondCode CC = static_cast<RISCVCC::CondCode>(Cond[0].getImm());
-  assert(CC != RISCVCC::COND_INVALID);
+  //assert(CC != RISCVCC::COND_INVALID);
+  if (CC == RISCVCC::COND_INVALID)
+    return false;
 
   if (CC == RISCVCC::COND_EQ || CC == RISCVCC::COND_NE)
     return false;
@@ -1270,7 +1272,8 @@ bool RISCVInstrInfo::isBranchOffsetInRange(unsigned BranchOp,
   // PseudoBR.
   switch (BranchOp) {
   default:
-    llvm_unreachable("Unexpected opcode!");
+    // Assume SEAL5 branches are all 13 bits.
+    //llvm_unreachable("Unexpected opcode!");
   case RISCV::BEQ:
   case RISCV::BNE:
   case RISCV::BLT:

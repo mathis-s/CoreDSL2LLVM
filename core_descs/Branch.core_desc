@@ -1,0 +1,9 @@
+
+BMASK {
+    operands: unsigned<5> rs1; unsigned<5> rs2; signed<12> imm12 [[is_branch_offs]];
+    encoding: imm12[6:0] :: rs2[4:0] :: rs1[4:0] :: 3'b011 :: imm12[11:7] :: 7'b0101011;
+    assembly: "{name(rs1)}, {name(rs2)}, {imm12}";
+    behavior: {
+        branch(X[rs1] & X[rs2]);
+    }
+}

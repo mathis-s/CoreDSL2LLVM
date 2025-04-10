@@ -18,6 +18,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
+#include "llvm/IR/IntrinsicsRISCV.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/AllocatorBase.h"
@@ -1147,6 +1148,19 @@ void ParseStatement(TokenStream &ts, llvm::Function *func,
   case CBrOpen:
     ParseScope(ts, func, build);
     break;
+  case Identifier:
+    if (ts.Peek().ident.str == "branch")
+    {
+      ts.Pop();
+      pop_cur(ts, RBrOpen);
+      auto val = ParseExpression(ts, func, build);
+      pop_cur(ts, RBrClose);
+      auto *xlenType = llvm::Type::getIntNTy(build.getContext(), xlen);
+      build.CreateIntrinsic(xlenType, llvm::Intrinsic::riscv_pg_branch, {val.ll});
+      pop_cur(ts, Semicolon);
+      break;
+    }
+    [[fallthrough]];
   default: {
     ParseExpression(ts, func, build);
     pop_cur(ts, Semicolon);
@@ -1178,6 +1192,7 @@ void ParseOperands(TokenStream &ts, CDSLInstr &instr) {
                    {"is_signed", {FieldType::SIGNED_REG, 0}},
                    {"is_imm", {FieldType::IMM, 0}},
                    {"is_reg", {FieldType::REG, 0}},
+                   {"is_branch_offs", {FieldType::IMM | FieldType::BRANCH_OFFS, 0}},
                    {"in", {FieldType::IN, 0}},
                    {"out", {FieldType::OUT, 0}},
                    {"inout", {(FieldType::IN | FieldType::OUT), 0}},
@@ -1244,6 +1259,7 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
 
   uint offset = 32;
   uint preDefIdx = instr.fields.size();
+  uint64_t constValue = 0;
 
   while (1) {
     switch (ts.Peek().type) {
@@ -1254,6 +1270,8 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
       // Create field with 0xFF placeholder index
       instr.frags.push_back(
           CDSLInstr::FieldFrag{0xFF, len, (uint8_t)offset, (uint8_t)offset});
+
+      constValue |= (litT.literal.value << offset);
       break;
     }
     case Identifier: {
@@ -1320,7 +1338,7 @@ void ParseEncoding(TokenStream &ts, CDSLInstr &instr) {
   // fields, we use one trailing constant field of size 32. FieldFragments can
   // index into relevant sections of this single field.
   instr.fields.push_back(CDSLInstr::Field{
-      .len = 32, .constV = 0, .type = CDSLInstr::FieldType::CONST});
+      .len = 32, .constV = (uint32_t)constValue, .type = CDSLInstr::FieldType::CONST});
   if (instr.fields.size() > 255)
     error("too many instruction fields", ts);
   uint8_t constIdx = instr.fields.size() - 1;
