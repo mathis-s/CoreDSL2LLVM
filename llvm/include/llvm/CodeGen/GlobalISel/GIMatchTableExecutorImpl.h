@@ -15,6 +15,7 @@
 #ifndef LLVM_CODEGEN_GLOBALISEL_GIMATCHTABLEEXECUTORIMPL_H
 #define LLVM_CODEGEN_GLOBALISEL_GIMATCHTABLEEXECUTORIMPL_H
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/GlobalISel/GIMatchTableExecutor.h"
 #include "llvm/CodeGen/GlobalISel/GISelChangeObserver.h"
@@ -56,6 +57,7 @@ bool GIMatchTableExecutor::executeMatchTable(
 
   uint64_t CurrentIdx = 0;
   SmallVector<uint64_t, 4> OnFailResumeAt;
+  SmallDenseMap<uint32_t, uint8_t> OtherUseTries;
   NewMIVector OutMIs;
 
   GISelChangeObserver *Observer = Builder.getObserver();
@@ -197,6 +199,7 @@ bool GIMatchTableExecutor::executeMatchTable(
     }
 
     case GIM_RecordExactOtherUseInsn: {
+      uint32_t StartIdx = CurrentIdx - 1;
       uint64_t NewInsnID = readULEB();
       uint64_t InsnID = readULEB();
       uint64_t OpIdx = readULEB();
@@ -223,7 +226,6 @@ bool GIMatchTableExecutor::executeMatchTable(
       }
 
       // Peek through virtual reg COPY, but not physical
-
       while (1) {
         auto *DefMO = MRI.getOneDef(MO->getReg());
         if (!DefMO || DefMO->getParent()->getOpcode() != TargetOpcode::COPY)
@@ -234,24 +236,37 @@ bool GIMatchTableExecutor::executeMatchTable(
         MO = UseMO;
       }
 
-      MachineOperand *OtherOperand = nullptr;
+      SmallVector<MachineOperand *, 4> OtherOperands;
       bool Multiple = false;
       for (auto &UseOperand : MRI.use_operands(MO->getReg())) {
         if (&UseOperand == MO)
           continue;
-        if (OtherOperand)
-          Multiple = true;
-        OtherOperand = &UseOperand;
+        OtherOperands.push_back(&UseOperand);
       }
+
+      MachineOperand *OtherOperand = nullptr;
+
+      if (OtherOperands.size() > 1) {
+        if (!OtherUseTries.contains(CurrentIdx))
+          OtherUseTries[CurrentIdx] = 0;
+
+        auto Tries = OtherUseTries[CurrentIdx]++;
+        OtherOperand = OtherOperands[Tries];
+
+        if (Tries != OtherOperands.size() - 1)
+          OnFailResumeAt.push_back(StartIdx);
+      } else if (OtherOperands.size() == 1)
+        OtherOperand = OtherOperands.front();
 
       /*while (OtherOperand &&
              OtherOperand->getParent()->getOpcode() == TargetOpcode::COPY)
         OtherOperand = &OtherOperand->getParent()->getOperand(0);*/
 
-      if (!OtherOperand || Multiple ||
+      if (!OtherOperand ||
           OtherOperand->getParent()->getOpcode() >
               TargetOpcode::PRE_ISEL_GENERIC_OPCODE_END ||
-          OtherOperand->getOperandNo() != ExpectedOtherOpIdx) {
+          OtherOperand->getOperandNo() != ExpectedOtherOpIdx ||
+          OtherOperand->getParent()->getFlag(MachineInstr::MarkDelete)) {
         if (handleReject() == RejectAndGiveUp)
           return false;
         break;
