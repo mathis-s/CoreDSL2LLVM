@@ -924,6 +924,34 @@ public:
   }
 };
 
+/// Generates code to check that a register operand is defined by the same exact
+/// one as another.
+class SameOperandMatcherByIdx : public OperandPredicateMatcher {
+  unsigned OrigInsnID;
+  unsigned OrigOpIdx;
+
+  GISelFlags Flags;
+
+public:
+  SameOperandMatcherByIdx(unsigned InsnVarID, unsigned OpIdx, unsigned OrigInsnID,
+                     unsigned OrigOpIdx, GISelFlags Flags)
+      : OperandPredicateMatcher(OPM_SameOperand, InsnVarID, OpIdx),
+        OrigInsnID(OrigInsnID), OrigOpIdx(OrigOpIdx), Flags(Flags) {}
+
+  static bool classof(const PredicateMatcher *P) {
+    return P->getKind() == OPM_SameOperand;
+  }
+
+  void emitPredicateOpcodes(MatchTable &Table,
+                            RuleMatcher &Rule) const override;
+
+  bool isIdentical(const PredicateMatcher &B) const override {
+    return OperandPredicateMatcher::isIdentical(B) &&
+           OrigOpIdx == cast<SameOperandMatcherByIdx>(&B)->OrigOpIdx &&
+           OrigInsnID == cast<SameOperandMatcherByIdx>(&B)->OrigInsnID;
+  }
+};
+
 /// Generates code to check that an operand is a particular LLT.
 class LLTOperandMatcher : public OperandPredicateMatcher {
 protected:

@@ -11,6 +11,7 @@
 
 #include "llvm/CodeGen/GlobalISel/PatternGen.h"
 #include "../../../tools/pattern-gen/lib/InstrInfo.hpp"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/LazyBlockFrequencyInfo.h"
@@ -48,7 +49,9 @@
 
 // #include "../../llvm/utils/TableGen/Common/GlobalISel/GlobalISelMatchTable.h"
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -905,7 +908,7 @@ struct RootNode : public PatternNode {
     //        "patternString() only supports single-destination instructions.");
     std::string Str = "(";
     for (auto &Store : Stores)
-      Str += Store.second->patternString() + ", ";
+      Str += Store.second->patternString() + " | ";
     Str += ")";
     return Str;
   }
@@ -1613,9 +1616,53 @@ private:
     int OutInstOpIdx;
   };
 
+  // Operand indicies may be swapped for commutative ops. This struct is a
+  // wrapper containing either a fixed OperandIdx (non-commutative), or a
+  // variable OperandIdx referencing a Range.
+  struct OperandIdx {
+    bool IsRange = 0;
+    uint16_t RangeIdx = 0;
+    uint16_t RangeLen = 0;
+    uint16_t RangeOffs = 0;
+    uint16_t OpIdx = 0;
+
+    static OperandIdx none() { return OperandIdx{}; }
+    static OperandIdx fixed(int Idx) {
+      return OperandIdx{false, 0, 0, 0, (uint16_t)Idx};
+    }
+    static OperandIdx ranged(size_t RangeIdx, size_t RangeLen, int Offset,
+                             int Idx) {
+      return OperandIdx{true, (uint16_t)RangeIdx, (uint16_t)RangeLen,
+                        (uint16_t)Offset, (uint16_t)Idx};
+    }
+
+    auto str() const {
+      std::stringstream os;
+      if (IsRange)
+        os << "(" << RangeOffs << "+(R_" << RangeIdx << "+" << OpIdx << ")%"
+           << RangeLen << ")";
+      else
+        os << OpIdx;
+      return os.str();
+    }
+
+    friend std::ostream &operator<<(std::ostream &os, const OperandIdx &OpIdx) {
+      os << OpIdx.str();
+      return os;
+    }
+  };
+
   std::vector<BindOutput> BindOutputs = {};
   std::vector<int> MarkErase = {};
   std::vector<int> Ranges = {};
+  DenseSet<PatternNode *> CoveredNodes;
+
+  // store the (insnID, operandIdx) referencing each forkOther
+  DenseMap<ForkOtherNode *, std::pair<uint32_t, OperandIdx>> ForkOtherOrigOp;
+
+  // store pre-existing ranged operand idx IDs
+  DenseMap<PatternNode *, uint32_t> RangedOperandIdxID;
+
   size_t NumCheckSafeToMove = 0;
   RootNode *Root;
   size_t CurIdx = 1;
@@ -1623,9 +1670,14 @@ private:
   std::optional<std::string> Error = std::nullopt;
 
 public:
-  void process(RootNode *Root) {
+  size_t process(RootNode *Root) {
     this->Root = Root;
     assert(Root->Stores.size() >= 1);
+
+    // RootIsCovered.clear();
+    // RootIsCovered.reserve(Root->Stores.size());
+    // RootIsCovered[0] = true;
+
     auto &[OpIdx, Store] = Root->Stores[0];
 
     // If the root node is a PTR_ADD it gets converted to a regular add by a
@@ -1644,6 +1696,9 @@ public:
 
     if (PtrAddFixup)
       llvm::cast<BinopNode>(Store.get())->Op = TargetOpcode::G_PTR_ADD;
+
+    // this is returned as a rough measure for complexity
+    return CurIdx;
   }
   GISelTableBackend() {
     Output << "{\nRuleMatcher "
@@ -1675,36 +1730,6 @@ public:
 
     return Header;
   }
-
-  // Operand indicies may be swapped for commutative ops. This struct is a
-  // wrapper containing either a fixed OperandIdx (non-commutative), or a
-  // variable OperandIdx referencing a Range.
-  struct OperandIdx {
-    bool IsRange = 0;
-    uint16_t RangeIdx = 0;
-    uint16_t RangeLen = 0;
-    uint16_t RangeOffs = 0;
-    uint16_t OpIdx = 0;
-
-    static OperandIdx none() { return OperandIdx{}; }
-    static OperandIdx fixed(int Idx) {
-      return OperandIdx{false, 0, 0, 0, (uint16_t)Idx};
-    }
-    static OperandIdx ranged(size_t RangeIdx, size_t RangeLen, int Offset,
-                             int Idx) {
-      return OperandIdx{true, (uint16_t)RangeIdx, (uint16_t)RangeLen,
-                        (uint16_t)Offset, (uint16_t)Idx};
-    }
-
-    friend std::ostream &operator<<(std::ostream &os, const OperandIdx &OpIdx) {
-      if (OpIdx.IsRange)
-        os << "(" << OpIdx.RangeOffs << "+(R_" << OpIdx.RangeIdx << "+"
-           << OpIdx.OpIdx << ")%" << OpIdx.RangeLen << ")";
-      else
-        os << OpIdx.OpIdx;
-      return os;
-    }
-  };
 
 private:
   void process_impl(PatternNode *Node, size_t Idx = 0,
@@ -1801,24 +1826,58 @@ private:
              << RegBank << ");\n";
     };
 
+    auto RootStoreIdx = [&](PatternNode *Node) -> std::optional<int> {
+      auto InstrOpIdxIter = std::find_if(
+          Root->Stores.begin(), Root->Stores.end(),
+          [&](const auto &Pair) { return Pair.second.get() == Node; });
+      if (InstrOpIdxIter != Root->Stores.end())
+        return InstrOpIdxIter->first;
+      return std::nullopt;
+    };
+
+    auto GetOrMakeRangeID = [&](PatternNode *Node) {
+      size_t RangeID;
+      if (RangedOperandIdxID.contains(Node)) {
+        RangeID = RangedOperandIdxID[Node];
+      } else {
+        RangeID = Ranges.size();
+        Ranges.push_back(2);
+        RangedOperandIdxID[Node] = RangeID;
+      }
+      return RangeID;
+    };
+
+    auto GetRootOfSubtree = [&](PatternNode *Node) {
+      while (1) {
+        if (auto Idx = RootStoreIdx(Node))
+          return std::make_pair(Node, *Idx);
+        Node = Node->Parent;
+      }
+    };
+
     auto Downwards = [&](PatternNode *Node) {
       while (1) {
         // We're done if in Root.Stores
-        auto InstrOpIdxIter = std::find_if(
-            Root->Stores.begin(), Root->Stores.end(),
-            [&](const auto &Pair) { return Pair.second.get() == Node; });
-        if (InstrOpIdxIter != Root->Stores.end())
-          return std::make_pair(Node, InstrOpIdxIter->first);
+        if (RootStoreIdx(Node))
+          return;
 
         switch (Node->getKind()) {
         case PatternNode::PN_Binop:
           CheckOpcode(FixedInstrs[llvm::cast<BinopNode>(Node)->Op]);
           break;
-        case PatternNode::PN_Load:
-          CheckOpcode("G_LOAD");
+        case PatternNode::PN_Load: {
+          auto &AsLoad = llvm::cast<LoadNode>(*Node);
+          if (AsLoad.Size == (int)XLen)
+            CheckOpcode("G_LOAD");
+          else if (AsLoad.Sext)
+            CheckOpcode("G_SEXTLOAD");
+          else
+            CheckOpcode("G_ZEXTLOAD");
           break;
+        }
         case PatternNode::PN_Cast:
-          break;
+          Node = Node->Parent;
+          continue;
         default:
           abort();
         }
@@ -1835,9 +1894,8 @@ private:
             OperandIdx::fixed(Iter - Operands.begin() + 1);
         if (auto *AsBinop = llvm::dyn_cast<BinopNode>(Node->Parent);
             AsBinop && AsBinop->Commutable) {
-          // todo: index incorrect for depth greater than 2.
-          ExpectedOpIdx =
-              OperandIdx::ranged(Ranges.size(), 2, 1, Iter - Operands.begin());
+          ExpectedOpIdx = OperandIdx::ranged(GetOrMakeRangeID(AsBinop), 2, 1,
+                                             Iter - Operands.begin());
         }
         state = None;
         OpIdx = OperandIdx::fixed(0);
@@ -1846,6 +1904,8 @@ private:
         Node = Node->Parent;
       }
     };
+
+    CoveredNodes.insert(Node);
 
     switch (Node->getKind()) {
     case PatternNode::PN_Binop: {
@@ -1864,17 +1924,18 @@ private:
         OpsBase = 2;
       }
 
-      size_t RangesLen = Ranges.size();
+      size_t RangeID;
       if (AsBinop.Commutable)
-        Ranges.push_back(2);
+        RangeID = GetOrMakeRangeID(Node);
 
-      process_impl(AsBinop.Left.get(), Idx, None,
+      process_impl(AsBinop.Left.get(), Idx,
+                   AsBinop.Op == TargetOpcode::G_PTR_ADD ? None_Ptr : None,
                    AsBinop.Commutable
-                       ? OperandIdx::ranged(RangesLen, 2, OpsBase, 0)
+                       ? OperandIdx::ranged(RangeID, 2, OpsBase, 0)
                        : OperandIdx::fixed(OpsBase + 0));
       process_impl(AsBinop.Right.get(), Idx, None,
                    AsBinop.Commutable
-                       ? OperandIdx::ranged(RangesLen, 2, OpsBase, 1)
+                       ? OperandIdx::ranged(RangeID, 2, OpsBase, 1)
                        : OperandIdx::fixed(OpsBase + 1));
       break;
     }
@@ -1892,6 +1953,22 @@ private:
       assert(AsFork.OtherUses.size() == 1);
       auto &OtherUse = *AsFork.OtherUses[0];
 
+      auto [OtherRoot, InstrOpIdx] = GetRootOfSubtree(OtherUse.Parent);
+      if (CoveredNodes.contains(OtherRoot)) {
+        if (!CoveredNodes.contains(AsFork.Value.get()))
+          Error = "bad fork order";
+        else {
+          auto [OrigIdx, OrigOpIdx] = ForkOtherOrigOp[&OtherUse];
+
+          PromoteToOperandMatcher();
+          AddPredicate("SameOperandMatcherByIdx",
+                       {"_" + std::to_string(OrigIdx) + ".getInsnVarID()",
+                        OrigOpIdx.str(), "0"});
+        }
+
+        break;
+      }
+
       auto Operands = OtherUse.Parent->getOperands();
       auto Iter = std::find_if(Operands.begin(), Operands.end(),
                                [&](std::unique_ptr<PatternNode> *Op) {
@@ -1902,15 +1979,15 @@ private:
       OperandIdx ExpectedOpIdx = OperandIdx::fixed(Iter - Operands.begin() + 1);
       if (auto *AsBinop = llvm::dyn_cast<BinopNode>(OtherUse.Parent);
           AsBinop && AsBinop->Commutable) {
-        ExpectedOpIdx =
-            OperandIdx::ranged(Ranges.size(), 2, 1, Iter - Operands.begin());
-      }
 
+        auto RangeID = GetOrMakeRangeID(AsBinop);
+        ExpectedOpIdx =
+            OperandIdx::ranged(RangeID, 2, 1, Iter - Operands.begin());
+      }
       PromoteToOtherUseInsnMatcher(ExpectedOpIdx);
 
       // Generate code to search downward until we arrive at Root.
-      auto [OtherRoot, InstrOpIdx] = Downwards(OtherUse.Parent);
-      assert(OtherRoot != Root->Stores[0].second.get() && "cyclic dependence");
+      Downwards(OtherUse.Parent);
 
       process_impl(OtherRoot, Idx, InsnMatcher);
       BindOutputs.push_back(BindOutput{CurInstr->fields[InstrOpIdx].ident,
@@ -1922,6 +1999,8 @@ private:
 
     case PatternNode::PN_ForkOther: {
       auto &AsForkOther = llvm::cast<ForkOtherNode>(*Node);
+      assert(state == None || state == None_Ptr);
+      ForkOtherOrigOp[&AsForkOther] = std::make_pair(Idx, OpIdx);
       process_impl(AsForkOther.Fork->Value.get(), Idx, state, OpIdx);
       break;
     }
@@ -2145,24 +2224,36 @@ public:
   }
 };
 
-void GenGISelTable(PatternNode *Root, std::ostream &Out) {
+void GenGISelTable(RootNode *Root, std::ostream &Out) {
 
-  ForkPermuter Permuter{llvm::cast<RootNode>(Root)};
-  int Patterns = 0;
-  int Success = 0;
+  ForkPermuter Permuter{Root};
+
+  llvm::SmallDenseMap<int, std::pair<size_t, std::string>> BestCandidates;
+
+  int I = 0;
   do {
     GISelTableBackend Backend{};
     llvm::outs() << "Permute: " << Root->patternString() << "\n";
-    Backend.process(llvm::cast<RootNode>(Root));
-    Out << Backend.getOutput().str();
+    auto Score = Backend.process(Root);
+    auto DstIdx = Root->Stores[0].first;
+
     if (auto Err = Backend.getError()) {
-      llvm::errs() << "GISel pattern generation failed for permutation #"
-                   << Patterns << " of " << CurInstr->name << ": " << Err
-                   << "\n";
-    } else
-      Success++;
-    Patterns++;
+      llvm::errs() << "GISel pattern generation failed for permutation #" << I
+                   << " of " << CurInstr->name << ": " << Err << "\n";
+    } else {
+      if (!BestCandidates.contains(DstIdx) ||
+          Score < BestCandidates[DstIdx].first)
+        BestCandidates[DstIdx] =
+            std::make_pair(Score, Backend.getOutput().str());
+    }
+    I++;
   } while (Permuter.next());
+
+  for (auto &[Idx, Pair] : BestCandidates)
+    Out << Pair.second;
+
+  int Patterns = Root->Stores.size();
+  int Success = BestCandidates.size();
 
   llvm::outs() << "Generated " << Success << " out of " << Patterns
                << " GISel pattern permutations for " << CurInstr->name << " ("
@@ -2228,7 +2319,8 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   {
     if (PatternGenArgs::Args.GISelTableBackend)
-      GenGISelTable(Node.get(), *PatternGenArgs::OutStreamGISelTable);
+      GenGISelTable(llvm::cast<RootNode>(Node.get()),
+                    *PatternGenArgs::OutStreamGISelTable);
     else
       llvm::outs() << "Pattern for " << InstName << ": "
                    << Node->patternString() << '\n';

@@ -1163,6 +1163,23 @@ void SameOperandMatcher::emitPredicateOpcodes(MatchTable &Table,
         << MatchTable::LineBreak;
 }
 
+//===- SameOperandMatcherByIdx --------------------------------------------===//
+
+void SameOperandMatcherByIdx::emitPredicateOpcodes(MatchTable &Table,
+                                                   RuleMatcher &Rule) const {
+  const bool IgnoreCopies = Flags & GISF_IgnoreCopies;
+  Table << MatchTable::Opcode(IgnoreCopies
+                                  ? "GIM_CheckIsSameOperandIgnoreCopies"
+                                  : "GIM_CheckIsSameOperand")
+        << MatchTable::Comment("MI") << MatchTable::ULEB128Value(InsnVarID)
+        << MatchTable::Comment("OpIdx") << MatchTable::ULEB128Value(OpIdx)
+        << MatchTable::Comment("OtherMI")
+        << MatchTable::ULEB128Value(OrigInsnID)
+        << MatchTable::Comment("OtherOpIdx")
+        << MatchTable::ULEB128Value(OrigOpIdx)
+        << MatchTable::LineBreak;
+}
+
 //===- LLTOperandMatcher --------------------------------------------------===//
 
 std::map<LLTCodeGen, unsigned> LLTOperandMatcher::TypeIDValues;
