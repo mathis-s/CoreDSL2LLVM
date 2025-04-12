@@ -2446,7 +2446,8 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
     // Include PatternGen-generated inc files here!
 
     //#include "../../core_descs/MultiOutput.inc"
-    #include "../../core_descs/Branch.inc"
+    //#include "../../core_descs/Branch.inc"
+    #include "../../core_descs/ToycarOpt.inc"
   }
   // Look through the SelectionDAG patterns we found, possibly emitting some.
   for (const PatternToMatch &Pat : CGP.ptms()) {

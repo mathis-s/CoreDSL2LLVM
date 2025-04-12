@@ -5,7 +5,7 @@
 std::string EncodingToTablgen(CDSLInstr const& instr)
 {
     std::stringstream s;
-    std::string opcodeString = instr.name;
+    std::string opcodeString = instr.opcString;
     std::replace(opcodeString.begin(), opcodeString.end(), '_', '.');
     std::transform(opcodeString.begin(), opcodeString.end(), opcodeString.begin(),
                    [](unsigned char c) { return std::tolower(c); });

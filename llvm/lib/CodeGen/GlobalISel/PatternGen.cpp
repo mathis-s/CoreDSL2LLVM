@@ -2113,11 +2113,13 @@ private:
              << "\", 0);\n";
       Output << "_O" << I
              << ".addPredicate<RegisterBankOperandMatcher>(GPR);\n";
-      Output << "RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, "
-             << (CurInstr->fields.size() - 2 - BindOutput.OutInstOpIdx)
-             << ", GPR);\n";
+      //Output << "RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, "
+      //       << (CurInstr->fields.size() - 2 - BindOutput.OutInstOpIdx)
+      //       << ", GPR);\n";
       I++;
     }
+
+    Output << "RM.addAction<ConstrainOperandsToDefinitionAction>(0);\n";
 
     for (auto EraseIdx : MarkErase)
       Output << "RM.addAction<MarkEraseInstAction>(RM.getInsnVarID(_"
@@ -2286,9 +2288,9 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   // We use the PatternArgs vector to store additional information
   // about parameters that may be found during pattern gen.
   PatternArgs.clear();
-  PatternArgs.append(CurInstr->fields.size(), PatternArg());
+  PatternArgs.append(CurInstr->fields.size() - 1, PatternArg());
 
-  for (size_t I = 0; I < CurInstr->fields.size(); I++)
+  for (size_t I = 0; I < CurInstr->fields.size() - 1; I++)
     if (CurInstr->fields[I].type & CDSLInstr::BRANCH_OFFS) {
       PatternArgs[I].In = true;
       PatternArgs[I].ArgTypeStr = "simm13_lsb0";
@@ -2360,7 +2362,7 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
     OutStream << ", Constraints = \"";
     {
       std::string Constr = "";
-      for (size_t I = 0; I < CurInstr->fields.size(); I++) {
+      for (size_t I = 0; I < CurInstr->fields.size() - 1; I++) {
         auto const &Field = CurInstr->fields[I];
         if (PatternArgs[I].In && PatternArgs[I].Out)
           Constr += "$" + std::string(Field.ident) + " = $" +

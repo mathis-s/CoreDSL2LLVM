@@ -1,0 +1,12 @@
+
+
+
+MAC_LD_X2 {
+    operands: signed<2> imm2 [[is_unroll_imm]];
+    encoding: imm2[1:0] :: rd2[4:0] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0101011;
+    assembly:"{name(rd)}, {name(rd2)}, {name(rs1)}, {imm2}({name(rs2)})";
+    behavior: {
+        X[rd] += X[rs1] * ((signed<16>)MEM16[X[rs2] + imm2*4]);
+        X[rd2] += X[rs1] * ((signed<16>)MEM16[X[rs2] + imm2*4 + 2]);
+    }
+}
