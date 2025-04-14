@@ -630,7 +630,7 @@ struct CompareNode : public BinopNode {
 
   CompareNode(LLT Type, CmpInst::Predicate Cond,
               std::unique_ptr<PatternNode> Left,
-              std::unique_ptr<PatternNode> Right, bool Commutable = false)
+              std::unique_ptr<PatternNode> Right, bool Commutable)
       : BinopNode(Type, TargetOpcode::G_ICMP, std::move(Left), std::move(Right),
                   Commutable),
         Cond(Cond) {}
@@ -1305,11 +1305,14 @@ struct PatternExtractor {
         return std::make_pair(Err, nullptr);
 
       assert(Cur.getOperand(0).isReg() && "expected register");
-      return std::make_pair(
-          SUCCESS, std::make_unique<CompareNode>(
-                       MRI.getType(Cur.getOperand(0).getReg()),
-                       (CmpInst::Predicate)Pred.getPredicate(),
-                       std::move(NodeL), std::move(NodeR), Cur.isCommutable()));
+      return std::make_pair(SUCCESS,
+                            std::make_unique<CompareNode>(
+                                MRI.getType(Cur.getOperand(0).getReg()),
+                                (CmpInst::Predicate)Pred.getPredicate(),
+                                std::move(NodeL), std::move(NodeR),
+                                Cur.isCommutable() ||
+                                    Pred.getPredicate() == CmpInst::ICMP_EQ ||
+                                    Pred.getPredicate() == CmpInst::ICMP_NE));
     }
     case TargetOpcode::COPY: {
       // Immediate Operands
@@ -1582,7 +1585,6 @@ struct PatternExtractor {
         default:
           llvm_unreachable("unknown intrinsic id");
         }
-        break;
       }
     }
 
@@ -1714,7 +1716,9 @@ public:
 
   std::stringstream getOutput() {
 
-    if (MarkErase.size() != Root->Stores.size() - 1)
+    if (BindOutputs.size() +
+            (llvm::isa<BranchNode>(Root->Stores[0].second.get()) ? 1 : 0) !=
+        Root->Stores.size())
       Error = "could not cover entire pattern. Do all results use at least one "
               "common value?";
 
@@ -1909,14 +1913,22 @@ private:
 
     switch (Node->getKind()) {
     case PatternNode::PN_Binop: {
+      // bool AsPtr = state == None_Ptr;
+
       auto &AsBinop = llvm::cast<BinopNode>(*Node);
       PromoteToInsnMatcher();
 
       assert((unsigned)AsBinop.Op < NumFixedInstructions);
-      CheckOpcode(FixedInstrs[AsBinop.Op]);
+      auto Opcode = AsBinop.Op;
+      auto Commutable = AsBinop.Commutable;
+
+      // If the output type is a ptr convert G_ADD to G_PTR_ADD.
+      // if (AsPtr && Opcode == TargetOpcode::G_ADD)
+      //  Opcode = TargetOpcode::G_PTR_ADD;
+      CheckOpcode(FixedInstrs[Opcode]);
 
       int OpsBase = 1;
-      if (AsBinop.Op == TargetOpcode::G_ICMP) {
+      if (Opcode == TargetOpcode::G_ICMP) {
         AddPredicate(
             "CmpPredicateOperandMatcher",
             {"1", "\"" + CmpStrGI.at(static_cast<CompareNode &>(AsBinop).Cond) +
@@ -1924,19 +1936,21 @@ private:
         OpsBase = 2;
       }
 
+      bool LeftAsPtr = Opcode == TargetOpcode::G_PTR_ADD;
+
+      auto *Left = AsBinop.Left.get();
+      auto *Right = AsBinop.Right.get();
+
       size_t RangeID;
-      if (AsBinop.Commutable)
+      if (Commutable)
         RangeID = GetOrMakeRangeID(Node);
 
-      process_impl(AsBinop.Left.get(), Idx,
-                   AsBinop.Op == TargetOpcode::G_PTR_ADD ? None_Ptr : None,
-                   AsBinop.Commutable
-                       ? OperandIdx::ranged(RangeID, 2, OpsBase, 0)
-                       : OperandIdx::fixed(OpsBase + 0));
-      process_impl(AsBinop.Right.get(), Idx, None,
-                   AsBinop.Commutable
-                       ? OperandIdx::ranged(RangeID, 2, OpsBase, 1)
-                       : OperandIdx::fixed(OpsBase + 1));
+      process_impl(Left, Idx, LeftAsPtr ? None_Ptr : None,
+                   Commutable ? OperandIdx::ranged(RangeID, 2, OpsBase, 0)
+                              : OperandIdx::fixed(OpsBase + 0));
+      process_impl(Right, Idx, None,
+                   Commutable ? OperandIdx::ranged(RangeID, 2, OpsBase, 1)
+                              : OperandIdx::fixed(OpsBase + 1));
       break;
     }
     case PatternNode::PN_Register: {
@@ -1953,7 +1967,16 @@ private:
       assert(AsFork.OtherUses.size() == 1);
       auto &OtherUse = *AsFork.OtherUses[0];
 
-      auto [OtherRoot, InstrOpIdx] = GetRootOfSubtree(OtherUse.Parent);
+      if (auto StoreIdx = RootStoreIdx(&OtherUse)) {
+        assert(state == None || state == None_Ptr);
+        auto InsnMatcherIdx = CurIdx + 1;
+        process_impl(AsFork.Value.get(), Idx, state, OpIdx);
+        BindOutputs.push_back(BindOutput{CurInstr->fields[*StoreIdx].ident,
+                                         (int)InsnMatcherIdx, 0, *StoreIdx});
+        break;
+      }
+
+      auto [OtherRoot, StoreIdx] = GetRootOfSubtree(OtherUse.Parent);
       if (CoveredNodes.contains(OtherRoot)) {
         if (!CoveredNodes.contains(AsFork.Value.get()))
           Error = "bad fork order";
@@ -1990,8 +2013,8 @@ private:
       Downwards(OtherUse.Parent);
 
       process_impl(OtherRoot, Idx, InsnMatcher);
-      BindOutputs.push_back(BindOutput{CurInstr->fields[InstrOpIdx].ident,
-                                       (int)Idx, 0, InstrOpIdx});
+      BindOutputs.push_back(
+          BindOutput{CurInstr->fields[StoreIdx].ident, (int)Idx, 0, StoreIdx});
       MarkErase.push_back(Idx);
       NumCheckSafeToMove++;
       break;
@@ -2113,9 +2136,10 @@ private:
              << "\", 0);\n";
       Output << "_O" << I
              << ".addPredicate<RegisterBankOperandMatcher>(GPR);\n";
-      //Output << "RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID, "
-      //       << (CurInstr->fields.size() - 2 - BindOutput.OutInstOpIdx)
-      //       << ", GPR);\n";
+      // Output << "RM.addAction<ConstrainOperandToRegClassAction>(OutputInstID,
+      // "
+      //        << (CurInstr->fields.size() - 2 - BindOutput.OutInstOpIdx)
+      //        << ", GPR);\n";
       I++;
     }
 
@@ -2204,7 +2228,12 @@ public:
       auto *ForkOther =
           Fork->OtherUses[Forks[i].second % Fork->OtherUses.size()];
 
+      Forks[i].second = (Forks[i].second + 1) % (Fork->OtherUses.size() + 1);
+
       {
+        if (Fork->Parent == Root || ForkOther->Parent == Root)
+          continue;
+
         auto *ForkOperand =
             *llvm::find_if(Fork->Parent->getOperands(),
                            [&](auto &Op) { return Op->get() == Fork; });
@@ -2216,7 +2245,6 @@ public:
         std::swap(*ForkOperand, *ForkOtherOperand);
       }
 
-      Forks[i].second = (Forks[i].second + 1) % (Fork->OtherUses.size() + 1);
       if (Forks[i].second != 0) {
         pushRoots();
         return next();
@@ -2238,15 +2266,17 @@ void GenGISelTable(RootNode *Root, std::ostream &Out) {
     llvm::outs() << "Permute: " << Root->patternString() << "\n";
     auto Score = Backend.process(Root);
     auto DstIdx = Root->Stores[0].first;
+    auto Str = Backend.getOutput().str();
 
     if (auto Err = Backend.getError()) {
       llvm::errs() << "GISel pattern generation failed for permutation #" << I
                    << " of " << CurInstr->name << ": " << Err << "\n";
     } else {
       if (!BestCandidates.contains(DstIdx) ||
-          Score < BestCandidates[DstIdx].first)
-        BestCandidates[DstIdx] =
-            std::make_pair(Score, Backend.getOutput().str());
+          Score < BestCandidates[DstIdx].first) {
+        assert(Score != 0);
+        BestCandidates[DstIdx] = std::make_pair(Score, Str);
+      }
     }
     I++;
   } while (Permuter.next());
