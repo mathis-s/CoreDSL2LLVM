@@ -237,7 +237,6 @@ struct PatternNode {
     PN_Binop,
     PN_Ternop,
     PN_Shuffle,
-    PN_Compare,
     PN_Unop,
     PN_Constant,
     PN_Register,
@@ -864,7 +863,8 @@ struct StoreNode : public PatternNode {
     abort();
   }
 
-  static bool classof(const PatternNode *p) { return p->getKind() == PN_Cast; }
+  static bool classof(const PatternNode *p) { return p->getKind() == PN_Store; }
+
   std::vector<std::unique_ptr<PatternNode> *> getOperands() override {
     return {&Value, &Addr};
   }
@@ -1691,7 +1691,9 @@ public:
       PtrAddFixup = true;
     }
 
-    if (!llvm::isa<BranchNode>(Store))
+    // plain register outputs must be bound, not so branches (the output is
+    // implicitly pc) or memory stores (output is in memory.)
+    if (!llvm::isa<BranchNode>(Store) && !llvm::isa<StoreNode>(Store))
       BindOutputs.push_back(
           BindOutput{CurInstr->fields[OpIdx].ident, 0, 0, OpIdx});
     process_impl(Store.get(), 0, InsnMatcher);
@@ -1716,9 +1718,19 @@ public:
 
   std::stringstream getOutput() {
 
-    if (BindOutputs.size() +
-            (llvm::isa<BranchNode>(Root->Stores[0].second.get()) ? 1 : 0) !=
-        Root->Stores.size())
+    unsigned Branches = 0;
+    unsigned MemStores = 0;
+    for (auto &[Idx, Store] : Root->Stores) {
+      if (llvm::isa<BranchNode>(Store))
+        Branches++;
+      if (llvm::isa<StoreNode>(Store))
+        MemStores++;
+    }
+
+    if (Branches > 1)
+      Error = "multiple branches";
+
+    if (BindOutputs.size() + Branches + MemStores != Root->Stores.size())
       Error = "could not cover entire pattern. Do all results use at least one "
               "common value?";
 
@@ -1771,14 +1783,15 @@ private:
       state = OpMatcher;
     };
 
-    auto PromoteToInsnMatcher = [&]() {
+    auto PromoteToInsnMatcher = [&](StringRef Name = "") {
       PromoteToOperandMatcher();
       if (state >= InsnMatcher)
         return;
       NumCheckSafeToMove++;
       Output << "auto &_" << (CurIdx) << " = (**(_" << Idx
              << ".addPredicate<InstructionOperandMatcher>(RM, "
-                "\"\"))).getInsnMatcher();\n";
+                "\""
+             << Name.str() << "\"))).getInsnMatcher();\n";
       Idx = CurIdx++;
       state = InsnMatcher;
     };
@@ -1956,10 +1969,22 @@ private:
     case PatternNode::PN_Register: {
       auto &AsRegNode = llvm::cast<RegisterNode>(*Node);
       bool Ptr = (state == None_Ptr);
-      BindAndPromoteToOperandMatcher(AsRegNode.Name);
-      if (!Ptr)
+      if (AsRegNode.IsImm) {
+        assert(!Ptr);
+        PromoteToOperandMatcher();
         CheckIsLLT(AsRegNode.Type);
-      CheckIsRegBank("GPR");
+        PromoteToInsnMatcher(AsRegNode.Name);
+        CheckOpcode("G_CONSTANT");
+        std::string ImmType =
+            (AsRegNode.Sext ? "simm" : "uimm") + std::to_string(AsRegNode.Size);
+        AddPredicate("InstructionImmPredicateMatcher",
+                     {"ImmPredicates[\"" + ImmType + "\"]"});
+      } else {
+        BindAndPromoteToOperandMatcher(AsRegNode.Name);
+        if (!Ptr)
+          CheckIsLLT(AsRegNode.Type);
+        CheckIsRegBank("GPR");
+      }
       break;
     }
     case PatternNode::PN_Fork: {
@@ -2082,6 +2107,19 @@ private:
       break;
     }
 
+    case PatternNode::PN_Store: {
+      auto &AsStore = llvm::cast<StoreNode>(*Node);
+      CheckOpcode("G_STORE");
+      AddPredicate("AtomicOrderingMMOPredicateMatcher", {"\"NotAtomic\""});
+      AddPredicate(
+          "MemorySizePredicateMatcher",
+          {"0", std::to_string(AsStore.Type.getScalarSizeInBits() / 8)});
+
+      process_impl(AsStore.Value.get(), Idx, None, OperandIdx::fixed(0));
+      process_impl(AsStore.Addr.get(), Idx, None_Ptr, OperandIdx::fixed(1));
+      break;
+    }
+
     default:
       Error = "unknown node";
       break;
@@ -2089,12 +2127,8 @@ private:
       // case PatternNode::PN_NOp:
       // case PatternNode::PN_Ternop:
       // case PatternNode::PN_Shuffle:
-      // case PatternNode::PN_Compare:
       // case PatternNode::PN_Unop:
-      // case PatternNode::PN_Load:
       // case PatternNode::PN_Select:
-      // case PatternNode::PN_Cast:
-      // case PatternNode::PN_Store:
     }
   }
 
@@ -2118,9 +2152,15 @@ private:
     }
 
     for (size_t i = 0; i < PatternArgs.size(); i++) {
-      if (PatternArgs[i].In)
-        Output << "DstMIBuilder.addRenderer<CopyRenderer>(\""
-               << CurInstr->fields[i].ident << "\");\n";
+      if (PatternArgs[i].In) {
+        if (CurInstr->fields[i].type & CDSLInstr::IMM) {
+          Output << "DstMIBuilder.addRenderer<CopyConstantAsImmRenderer>(\""
+                 << CurInstr->fields[i].ident << "\");\n";
+        } else {
+          Output << "DstMIBuilder.addRenderer<CopyRenderer>(\""
+                 << CurInstr->fields[i].ident << "\");\n";
+        }
+      }
     }
 
     size_t I = 0;

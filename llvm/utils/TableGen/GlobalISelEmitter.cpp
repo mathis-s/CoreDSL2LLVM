@@ -2440,8 +2440,15 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
     assert(GPRIt != RecClasses.end() && "no GPR reg class");
     CodeGenRegisterClass &GPR = *GPRIt;
 
-    std::vector AddOrPtrAdd = {&Target.getInstruction(RK.getDef("G_ADD")), &Target.getInstruction(RK.getDef("G_PTR_ADD"))};
+    llvm::StringMap<TreePattern *> ImmPredicates;
+    // taken from RISCVInstrInfo.td (only ImmLeafOp NOT ImmOp)
+    // todo: add immediates for more lengths
+    auto ImmNames = {"uimm1", "uimm2", "uimm5", "uimm6", "simm12"};
+    for (auto &Name : ImmNames)
+      ImmPredicates[Name] = CGP.getPatternFragment(RK.getDef(Name));
 
+    std::vector AddOrPtrAdd = {&Target.getInstruction(RK.getDef("G_ADD")),
+                               &Target.getInstruction(RK.getDef("G_PTR_ADD"))};
 
     // Include PatternGen-generated inc files here!
 
