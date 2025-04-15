@@ -40,6 +40,7 @@
 #include "Common/InfoByHwMode.h"
 #include "Common/SubtargetFeatureInfo.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/CodeGen/GlobalISel/GIMatchTableExecutor.h"
 #include "llvm/CodeGenTypes/LowLevelType.h"
 #include "llvm/CodeGenTypes/MachineValueType.h"
@@ -2455,6 +2456,7 @@ void GlobalISelEmitter::run(raw_ostream &OS) {
     //#include "../../core_descs/MultiOutput.inc"
     //#include "../../core_descs/Branch.inc"
     #include "../../core_descs/ToycarOpt.inc"
+    //#include "../../core_descs/Store.inc"
   }
   // Look through the SelectionDAG patterns we found, possibly emitting some.
   for (const PatternToMatch &Pat : CGP.ptms()) {
