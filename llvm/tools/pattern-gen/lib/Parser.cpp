@@ -268,10 +268,12 @@ Value gen_subscript(TokenStream &ts, llvm::Function *func,
     llvm::Value *mask =
         (len == llLen)
             ? llvm::ConstantInt::get(upper.ll->getType(), 0)
-            : build.CreateShl(llvm::ConstantInt::get(upper.ll->getType(), 1),
+            : build.CreateShl(
+                              llvm::ConstantInt::get(llvm::Type::getIntNTy(ctx, len + 1), 1),
                               len);
-    mask =
-        build.CreateSub(mask, llvm::ConstantInt::get(upper.ll->getType(), 1));
+    mask = build.CreateSub(mask, llvm::ConstantInt::get(mask->getType(), 1));
+    mask = (len < left.ll->getType()->getIntegerBitWidth()) ? build.CreateZExt(mask, left.ll->getType()) : ((build.CreateTrunc(mask, left.ll->getType())) ? : mask);
+
     left.ll = build.CreateAnd(left.ll, mask);
 
     left.bitWidth = len;
