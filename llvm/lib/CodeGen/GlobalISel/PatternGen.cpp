@@ -937,8 +937,28 @@ static PatternOrError traverseRegLoad(MachineRegisterInfo &MRI,
     ReadOffset = Offset->getOperand(1).getCImm()->getLimitedValue();
   }
   if (AddrI->getOpcode() == TargetOpcode::G_SELECT) {
-    // TODO: implement this!
-    return pError(FORMAT_LOAD, AddrI);
+    assert(AddrI->getOperand(1).isReg() && "expected register");
+    auto CondInstr  = AddrI->getOperand(1);
+    auto CondReg  = CondInstr.getReg();
+    auto [ErrCond, CondNode] = traverse(MRI, *MRI.getVRegDef(CondReg));
+    if (ErrCond)
+      return PError(ErrCond);
+    assert(AddrI->getOperand(2).isReg() && "expected register");
+    auto TrueInstr  = AddrI->getOperand(2);
+    auto TrueReg  = TrueInstr.getReg();
+    auto [ErrTrue, TrueNode] = traverseRegLoad(MRI, Cur, ReadSize, MRI.getVRegDef(TrueReg));
+    if (ErrTrue)
+      return PError(ErrTrue);
+    assert(AddrI->getOperand(3).isReg() && "expected register");
+    auto FalseInstr  = AddrI->getOperand(3);
+    auto FalseReg  = FalseInstr.getReg();
+    auto [ErrFalse, FalseNode] = traverseRegLoad(MRI, Cur, ReadSize, MRI.getVRegDef(FalseReg));
+    if (ErrFalse)
+      return PError(ErrFalse);
+    auto Node = std::make_unique<TernopNode>(
+        MRI.getType(Cur.getOperand(0).getReg()), AddrI->getOpcode(),
+        std::move(CondNode), std::move(TrueNode), std::move(FalseNode));
+    return PPattern(std::move(Node));
   }
   if (AddrI->getOpcode() != TargetOpcode::COPY)
     return pError(FORMAT_LOAD, AddrI);
