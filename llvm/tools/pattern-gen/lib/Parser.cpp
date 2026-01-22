@@ -807,6 +807,17 @@ Value ParseExpressionTerminal(TokenStream &ts, llvm::Function *func,
     if (t.ident.str == "X" || t.ident.str == "XW") {
       bool sizeIs32 = t.ident.str == "XW";
       pop_cur(ts, ABrOpen);
+      if (ts.Peek().type == IntLiteral) {  // Handle X[0]
+        auto idx = pop_cur(ts, IntLiteral);
+        pop_cur(ts, ABrClose);
+        if (idx.literal.value == 0)  // X[0] -> 0
+          return Value(
+              llvm::ConstantInt::get(llvm::Type::getIntNTy(ctx, sizeIs32 ? 32 : xlen),
+                                     0, true),
+              true);
+        else  // X[1],...
+          not_implemented(ts);
+      }
       auto ident = pop_cur(ts, Identifier).ident;
       pop_cur(ts, ABrClose);
 
