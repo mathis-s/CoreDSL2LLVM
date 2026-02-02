@@ -107,6 +107,19 @@ static void warning(const char *msg, TokenStream &ts) {
   fprintf(stderr, "%s:%i: warning: %s\n", ts.path.c_str(), ts.lineNumber, msg);
 }
 
+#include "llvm/ADT/Twine.h"
+
+static void __attribute__((noreturn))
+error(const llvm::Twine &msg, TokenStream &ts) {
+  std::string s = msg.str(); // materialize once
+  error(s.c_str(), ts);
+}
+
+static void warning(const llvm::Twine &msg, TokenStream &ts) {
+  std::string s = msg.str();
+  warning(s.c_str(), ts);
+}
+
 static void __attribute__((noreturn)) syntax_error(TokenStream &ts) {
   error("syntax error", ts);
 }
@@ -1180,64 +1193,168 @@ void ParseScope(TokenStream &ts, llvm::Function *func,
   pop_cur(ts, CBrClose);
 }
 
-int ParseAttributes(TokenStream &ts) {
-  using FieldType = CDSLInstr::FieldType;
+
+struct AttrValue {
+  enum Kind {
+    Bool,     // [[is_reg]]
+    Int,      // [[opcode=7'ha]]
+    String    // [[llvm_type="seal5_simm3"]]
+  } kind;
+
+  uint64_t intVal;
+  std::string strVal;
+
+  static AttrValue makeBool() { return {Bool, 0, {}}; }
+  static AttrValue makeInt(uint64_t v) { return {Int, v, {}}; }
+  static AttrValue makeString(std::string s) {
+    AttrValue v;
+    v.kind = String;
+    v.strVal = std::move(s);
+    return v;
+  }
+  static AttrValue makeString(std::string_view s) {
+    AttrValue a;
+    a.kind = String;
+    a.strVal.assign(s.data(), s.size()); // explicit copy
+    return a;
+  }
+};
+
+
+using AttrMap = llvm::StringMap<AttrValue>;
+AttrMap ParseAttributes(TokenStream &ts) {
+  // using FieldType = CDSLInstr::FieldType;
 
   // Sign bit specifies whether to OR or AND the mask, so just do
   // ~MY_FIELD to unset myField.
-  const static llvm::DenseMap<llvm::StringRef, std::pair<uint, bool>>
-      attrMap = {{"is_unsigned", {~FieldType::SIGNED_REG, 0}},
-                 {"is_signed", {FieldType::SIGNED_REG, 0}},
-                 {"is_imm", {FieldType::IMM, 0}},
-                 {"is_reg", {FieldType::REG, 0}},
-                 {"in", {FieldType::IN, 0}},
-                 {"out", {FieldType::OUT, 0}},
-                 {"inout", {(FieldType::IN | FieldType::OUT), 0}},
-                 {"is_32_bit", {FieldType::IS_32_BIT, 0}}};
+  // const static llvm::DenseMap<llvm::StringRef, std::pair<uint, bool>>
+  //     attrMap = {{"is_unsigned", {~FieldType::SIGNED_REG, 0}},
+  //                {"is_signed", {FieldType::SIGNED_REG, 0}},
+  //                {"is_imm", {FieldType::IMM, 0}},
+  //                {"is_reg", {FieldType::REG, 0}},
+  //                {"in", {FieldType::IN, 0}},
+  //                {"out", {FieldType::OUT, 0}},
+  //                {"inout", {(FieldType::IN | FieldType::OUT), 0}},
+  //                {"is_32_bit", {FieldType::IS_32_BIT, 0}}};
 
-  uint acc = 0;
+  // uint acc = 0;
+  AttrMap attrs;
   while (ts.Peek().type == ABrOpen) {
     for (int i = 0; i < 2; i++)
       pop_cur(ts, ABrOpen);
 
-    bool allowArg = true;
+    // bool allowArg = true;
 
     auto ident = pop_cur(ts, Identifier).ident;
-    std::string attrName = std::string{ident.str};
-    std::transform(attrName.begin(), attrName.end(), attrName.begin(),
+    std::string name = std::string{ident.str};
+    std::transform(name.begin(), name.end(), name.begin(),
                  [](unsigned char c) { return std::tolower(c); });
-    auto iter = attrMap.find(attrName);
-    if (iter != attrMap.end()) {
-      uint op = iter->getSecond().first;
-      allowArg = iter->getSecond().second;
-      if (op & (1UL << (std::numeric_limits<uint>::digits - 1)))
-        acc &= op;
-      else
-        acc |= op;
-    }
-
+    AttrValue value = AttrValue::makeBool();
     if (pop_cur_if(ts, Assignment)) {
-      if (!allowArg)
-        error("attribute does not take an argument", ts);
-      if (!llvm::find(std::array{Identifier, IntLiteral, StringLiteral},
-                      ts.Pop().type))
-        error("invalid attribute", ts);
+      auto tok = ts.Pop();
+      switch (tok.type) {
+      case IntLiteral:
+        value = AttrValue::makeInt(tok.literal.value);
+        break;
+      case StringLiteral:
+        value = AttrValue::makeString(tok.strLit.str);
+        break;
+      case Identifier:
+        value = AttrValue::makeString(tok.ident.str);
+        break;
+      default:
+        error("invalid attribute value", ts);
+      }
     }
+    attrs[name] = std::move(value);
+
+    // auto iter = attrMap.find(attrName);
+    // if (iter != attrMap.end()) {
+    //   uint op = iter->getSecond().first;
+    //   allowArg = iter->getSecond().second;
+    //   if (op & (1UL << (std::numeric_limits<uint>::digits - 1)))
+    //     acc &= op;
+    //   else
+    //     acc |= op;
+    // }
+
+    // if (pop_cur_if(ts, Assignment)) {
+    //   if (!allowArg)
+    //     error("attribute does not take an argument", ts);
+    //   if (!llvm::find(std::array{Identifier, IntLiteral, StringLiteral},
+    //                   ts.Pop().type))
+    //     error("invalid attribute", ts);
+    // }
 
     for (int i = 0; i < 2; i++)
       pop_cur(ts, ABrClose);
   }
+  return attrs;
 
-  return (CDSLInstr::FieldType)acc;
+  // return (CDSLInstr::FieldType)acc;
 }
 
-int ParseOperandAttributes(TokenStream &ts) {
-  return ParseAttributes(ts);
+void ApplyOperandAttributes(const AttrMap &attrs, CDSLInstr::Field &op, TokenStream &ts) {
+  using FT = CDSLInstr::FieldType;
+
+  int type = op.type;
+  for (auto &kv : attrs) {
+    auto name = kv.first();
+    auto &val = kv.second;
+
+    if (name == "is_reg") {
+      type |= FT::REG;
+    } else if (name == "is_imm") {
+      type |= FT::IMM;
+    } else if (name == "in") {
+      type |= FT::IN;
+    } else if (name == "out") {
+      type |= FT::OUT;
+    } else if (name == "inout") {
+      type |= (FT::IN | FT::OUT);
+    } else if (name == "is_signed") {
+      type |= FT::SIGNED_REG;
+    } else if (name == "is_unsigned") {
+      type &= (~FT::SIGNED_REG);
+    } else if (name == "is_32_bit") {
+      type |= FT::IS_32_BIT;
+    } else if (name == "llvm_type") {
+      if (val.kind != AttrValue::String)
+        error("llvm_type must be a string", ts);
+      op.llvm_type = val.strVal;
+    // } else if (name == "reg_class") {
+    //   op.regClass = val.strVal;
+    } else {
+      warning("unknown operand attribute: " + name, ts);
+    }
+
+  }
+  op.type = (CDSLInstr::FieldType)type;
+}
+
+void ParseOperandAttributes(TokenStream &ts, CDSLInstr::Field &op) {
+  AttrMap attrs = ParseAttributes(ts);
+  ApplyOperandAttributes(attrs, op, ts);
+}
+
+void ApplyInstructionAttributes(const AttrMap &attrs, CDSLInstr &instr, TokenStream &ts) {
+  for (auto &kv : attrs) {
+    auto name = kv.first();
+    auto &val = kv.second;
+
+    if (name == "llvm_instr") {
+      if (val.kind != AttrValue::String)
+        error("llvm_instr must be a string", ts);
+      instr.llvm_instr = val.strVal;
+    } else {
+      warning("unknown instruction attribute: " + name, ts);
+    }
+  }
 }
 
 void ParseInstructionAttributes(TokenStream &ts, CDSLInstr &instr) {
-  // ignore attributes
-  ParseAttributes(ts);
+  AttrMap attrs = ParseAttributes(ts);
+  ApplyInstructionAttributes(attrs, instr, ts);
 }
 
 void ParseSetAttributes(TokenStream &ts) {
@@ -1253,14 +1370,17 @@ void ParseOperands(TokenStream &ts, CDSLInstr &instr) {
 
   while (peek_is_type(ts)) {
     auto vd = ParseDefinition(ts);
-    uint type = ParseOperandAttributes(ts) | CDSLInstr::FieldType::NON_CONST;
-    type = (type & ~CDSLInstr::SIGNED) | (vd.sgn ? CDSLInstr::SIGNED : 0);
 
-    instr.fields.push_back(
-        CDSLInstr::Field{.len = (uint8_t)vd.bitSize,
-                         .ident = vd.ident,
-                         .identIdx = vd.identIdx,
-                         .type = (CDSLInstr::FieldType)type});
+    CDSLInstr::Field op = CDSLInstr::Field{.len = (uint8_t)vd.bitSize,
+                          .ident = vd.ident,
+                          .identIdx = vd.identIdx,
+                          .type = CDSLInstr::FieldType::NON_CONST};
+
+    ParseOperandAttributes(ts, op);
+
+    op.type = (CDSLInstr::FieldType)((op.type & ~CDSLInstr::SIGNED) | (vd.sgn ? CDSLInstr::SIGNED : 0));
+
+    instr.fields.push_back(op);
 
     pop_cur(ts, Semicolon);
   }
