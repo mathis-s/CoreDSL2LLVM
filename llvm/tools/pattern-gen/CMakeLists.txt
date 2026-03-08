@@ -20,6 +20,8 @@ set(LLVM_LINK_COMPONENTS
   TransformUtils
   Vectorize
   Passes
+  RISCVCodeGen
+  RISCVDesc
   )
 
 include_directories(../../lib/Target/RISCV)
