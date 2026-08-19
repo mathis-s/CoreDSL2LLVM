@@ -94,6 +94,7 @@ struct PatternArg {
 
 static CDSLInstr const *CurInstr = nullptr;
 static SmallVector<PatternArg, 8> PatternArgs;
+static bool HasSideEffects = 0;  // TODO: get from parser attrs
 static bool MayLoad = 0;
 static bool MayStore = 0;
 
@@ -1448,8 +1449,8 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
 
   auto &OutStream = *PatternGenArgs::OutStream;
 
-  OutStream << "let hasSideEffects = 0, mayLoad = " +
-                   std::to_string((int)MayLoad) +
+  OutStream << "let hasSideEffects = " + std::to_string((int)HasSideEffects) +
+                   ", mayLoad = " + std::to_string((int)MayLoad) +
                    ", mayStore = " + std::to_string((int)MayStore) +
                    ", "
                    "isCodeGenOnly = 1";
