@@ -10,6 +10,7 @@ struct PGArgsStruct
     llvm::CodeGenOptLevel OptLevel;
     std::string Predicates;
     bool Is64Bit;
+    bool DumpMIR;
 };
 
 int optimizeBehavior(llvm::Module* M, std::vector<CDSLInstr> const& Instrs, std::ostream& OstreamIR, PGArgsStruct Args);

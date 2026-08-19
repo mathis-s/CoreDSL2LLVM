@@ -38,10 +38,12 @@ struct CDSLInstr
         std::string_view ident;
         uint32_t identIdx;
         FieldType type;
+        std::string llvm_type;
     };
 
     uint8_t size;
     std::string name;
+    std::string llvm_instr;
     std::string mnemonic;
     std::string argString;
 

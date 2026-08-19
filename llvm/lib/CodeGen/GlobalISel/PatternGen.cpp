@@ -94,6 +94,7 @@ struct PatternArg {
 
 static CDSLInstr const *CurInstr = nullptr;
 static SmallVector<PatternArg, 8> PatternArgs;
+static bool HasSideEffects = 0;  // TODO: get from parser attrs
 static bool MayLoad = 0;
 static bool MayStore = 0;
 
@@ -210,8 +211,10 @@ std::string lltToRegTypeStr(LLT Type) {
   return "invalid";
 }
 
-std::string makeImmTypeStr(int Size, bool Signed) {
-  return (Signed ? "simm" : "uimm") + std::to_string(Size);
+std::string makeImmTypeStr(int Size, bool Signed, std::string llvm_type) {
+  if (llvm_type.empty())
+    return (Signed ? "simm" : "uimm") + std::to_string(Size);
+  return llvm_type;
 }
 
 struct PatternNode {
@@ -579,7 +582,7 @@ struct UnopNode : public PatternNode {
     std::string TypeStr = lltToString(Type);
 
     // ignore bitcast ops for now
-    if (Op == TargetOpcode::G_BITCAST)
+    if ((Op == TargetOpcode::G_BITCAST) || (Op == TargetOpcode::G_CONSTANT_FOLD_BARRIER))
       return Operand->patternString();
 
     return "(" + TypeStr + " (" + std::string(UnopStr.at(Op)) + " " +
@@ -587,7 +590,7 @@ struct UnopNode : public PatternNode {
   }
 
   LLT getRegisterTy(int OperandId) const override {
-    if (OperandId == -1 && Op != TargetOpcode::G_BITCAST)
+    if (OperandId == -1 && Op != TargetOpcode::G_BITCAST && Op != TargetOpcode::G_CONSTANT_FOLD_BARRIER)
       return Type;
     return Operand->getRegisterTy(OperandId);
   }
@@ -623,13 +626,14 @@ struct RegisterNode : public PatternNode {
   StringRef Name;
   int Size;
   bool Sext;
+  std::string llvm_type;
 
   size_t RegIdx;
 
   RegisterNode(LLT Type, StringRef Name, size_t RegIdx, bool IsImm, int Size,
-               bool Sext)
+               bool Sext, std::string llvm_type)
       : PatternNode(PN_Register, Type, IsImm), Name(Name), Size(Size),
-        Sext(Sext), RegIdx(RegIdx) {}
+        Sext(Sext), llvm_type(llvm_type), RegIdx(RegIdx) {}
 
   std::string patternString() override {
     std::string TypeStr = lltToString(Type);
@@ -637,8 +641,12 @@ struct RegisterNode : public PatternNode {
 
     if (IsImm) {
       // Immediate Operands
-      return ("(" + RegT + " ") + (Sext ? "simm" : "uimm") +
-             std::to_string(Size) + ":$" + std::string(Name) + ")";
+      std::string pre;
+      if (llvm_type.empty())
+        pre = (Sext ? "simm" : "uimm") + std::to_string(Size);
+      else
+        pre = llvm_type;
+      return ("(" + RegT + " ") + pre + ":$" + std::string(Name) + ")";
     }
 
     // Vector Types (currently rv32 only)
@@ -937,8 +945,28 @@ static PatternOrError traverseRegLoad(MachineRegisterInfo &MRI,
     ReadOffset = Offset->getOperand(1).getCImm()->getLimitedValue();
   }
   if (AddrI->getOpcode() == TargetOpcode::G_SELECT) {
-    // TODO: implement this!
-    return pError(FORMAT_LOAD, AddrI);
+    assert(AddrI->getOperand(1).isReg() && "expected register");
+    auto CondInstr  = AddrI->getOperand(1);
+    auto CondReg  = CondInstr.getReg();
+    auto [ErrCond, CondNode] = traverse(MRI, *MRI.getVRegDef(CondReg));
+    if (ErrCond)
+      return PError(ErrCond);
+    assert(AddrI->getOperand(2).isReg() && "expected register");
+    auto TrueInstr  = AddrI->getOperand(2);
+    auto TrueReg  = TrueInstr.getReg();
+    auto [ErrTrue, TrueNode] = traverseRegLoad(MRI, Cur, ReadSize, MRI.getVRegDef(TrueReg));
+    if (ErrTrue)
+      return PError(ErrTrue);
+    assert(AddrI->getOperand(3).isReg() && "expected register");
+    auto FalseInstr  = AddrI->getOperand(3);
+    auto FalseReg  = FalseInstr.getReg();
+    auto [ErrFalse, FalseNode] = traverseRegLoad(MRI, Cur, ReadSize, MRI.getVRegDef(FalseReg));
+    if (ErrFalse)
+      return PError(ErrFalse);
+    auto Node = std::make_unique<TernopNode>(
+        MRI.getType(Cur.getOperand(0).getReg()), AddrI->getOpcode(),
+        std::move(CondNode), std::move(TrueNode), std::move(FalseNode));
+    return PPattern(std::move(Node));
   }
   if (AddrI->getOpcode() != TargetOpcode::COPY)
     return pError(FORMAT_LOAD, AddrI);
@@ -959,7 +987,7 @@ static PatternOrError traverseRegLoad(MachineRegisterInfo &MRI,
 
   assert(Cur.getOperand(0).isReg() && "expected register");
   std::unique_ptr<PatternNode> Node = std::make_unique<RegisterNode>(
-      Type, Field->ident, Idx, false, Type.getSizeInBits(), false);
+      Type, Field->ident, Idx, false, Type.getSizeInBits(), false, Field->llvm_type);
 
   bool SizeMismatch = (int)Type.getSizeInBits() != ReadSize;
 
@@ -1040,6 +1068,7 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
 
     return std::make_pair(SUCCESS, std::move(Node));
   }
+  case TargetOpcode::G_CONSTANT_FOLD_BARRIER:
   case TargetOpcode::G_ANYEXT:
   case TargetOpcode::G_SEXT:
   case TargetOpcode::G_ZEXT:
@@ -1141,7 +1170,7 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
       PatternArgs[Idx].In = true;
       PatternArgs[Idx].Llt = LLT();
       PatternArgs[Idx].ArgTypeStr =
-          makeImmTypeStr(Field->len, Field->type & CDSLInstr::SIGNED);
+          makeImmTypeStr(Field->len, Field->type & CDSLInstr::SIGNED, Field->llvm_type);
 
       if (Field == nullptr)
         return std::make_pair(FORMAT_IMM, nullptr);
@@ -1150,7 +1179,7 @@ static PatternOrError traverse(MachineRegisterInfo &MRI, MachineInstr &Cur) {
       return std::make_pair(
           SUCCESS, std::make_unique<RegisterNode>(
                        MRI.getType(Cur.getOperand(0).getReg()), Field->ident,
-                       Idx, true, Field->len, Field->type & CDSLInstr::SIGNED));
+                       Idx, true, Field->len, Field->type & CDSLInstr::SIGNED, Field->llvm_type));
     }
 
     // Else COPY is just a pass-through.
@@ -1331,8 +1360,11 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
   MayLoad = 0;
   MayStore = 0;
 
+  if (PatternGenArgs::Args.DumpMIR) {
+    LLVM_DEBUG(MF.dump());
+  }
+
   std::string InstName = MF.getName().str().substr(4);
-  std::string InstNameO = InstName;
   ++PatternGenNumInstructionsProcessed;
   {
     auto It = std::find_if(
@@ -1342,6 +1374,10 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
            "implementation function without instruction definition");
     CurInstr = It.base();
   }
+  std::string InstMnemonic = CurInstr->mnemonic;
+  std::string LLVMInstr = CurInstr->llvm_instr;
+  std::string InstNameO = LLVMInstr.empty() ? InstName : LLVMInstr;
+
 
   // We use the PatternArgs vector to store additional information
   // about parameters that may be found during pattern gen.
@@ -1361,10 +1397,6 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
     ++PatternGenNumPatternsFailing;
     return true;
   }
-
-  llvm::outs() << "Pattern for " << InstName << ": " << Node->patternString()
-               << '\n';
-  ++PatternGenNumPatternsGenerated;
 
   LLT OutType = LLT();
   std::string OutsString;
@@ -1409,13 +1441,18 @@ bool PatternGen::runOnMachineFunction(MachineFunction &MF) {
     }
   }
 
+  llvm::outs() << "Pattern for " << InstName << " [" << InstMnemonic << "]: " << Node->patternString()
+               << '\n';
+  ++PatternGenNumPatternsGenerated;
+
+
   InsString = InsString.substr(0, InsString.size() - 2);
   OutsString = OutsString.substr(0, OutsString.size() - 2);
 
   auto &OutStream = *PatternGenArgs::OutStream;
 
-  OutStream << "let hasSideEffects = 0, mayLoad = " +
-                   std::to_string((int)MayLoad) +
+  OutStream << "let hasSideEffects = " + std::to_string((int)HasSideEffects) +
+                   ", mayLoad = " + std::to_string((int)MayLoad) +
                    ", mayStore = " + std::to_string((int)MayStore) +
                    ", "
                    "isCodeGenOnly = 1";

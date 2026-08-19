@@ -13,7 +13,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
         //         X[rd] = (signed<64>)res;
         //     }
         // }
-        // CHECK-RV64: Pattern for ADDW2: (i64 (sext (i32 (add (i32 GPR:$rs2), (i32 GPR:$rs1)))))
+        // CHECK-RV64: Pattern for ADDW2 [addw2]: (i64 (sext (i32 (add (i32 GPR:$rs2), (i32 GPR:$rs1)))))
         ADDW2 {
             encoding: 7'b0000000 :: rs2[4:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0111011;
             assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
@@ -22,7 +22,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
                 X[rd] = (signed<64>)res;
             }
         }
-        // CHECK-RV64-NEXT: Pattern for ADDW3: (i64 (sext (i32 (add (i32 GPR:$rs2), (i32 GPR:$rs1)))))
+        // CHECK-RV64-NEXT: Pattern for ADDW3 [addw3]: (i64 (sext (i32 (add (i32 GPR:$rs2), (i32 GPR:$rs1)))))
         ADDW3 {
             encoding: 7'b0000000 :: rs2[4:0] :: rs1[4:0] :: 3'b000 :: rd[4:0] :: 7'b0111011;
             assembly: "{name(rd)}, {name(rs1)}, {name(rs2)}";
@@ -32,7 +32,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for LB: (i64 (sextloadi8 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
+        // CHECK-RV64-NEXT: Pattern for LB [lb]: (i64 (sextloadi8 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
         LB {
             operands: {
                 unsigned<5> rd;
@@ -48,7 +48,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for LH: (i64 (sextloadi16 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
+        // CHECK-RV64-NEXT: Pattern for LH [lh]: (i64 (sextloadi16 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
         LH {
             operands: {
                 unsigned<5> rd;
@@ -64,7 +64,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
              }
         }
 
-        // CHECK-RV64-NEXT: Pattern for LW: (i64 (sextloadi32 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
+        // CHECK-RV64-NEXT: Pattern for LW [lw]: (i64 (sextloadi32 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
         LW {
             operands: {
                 unsigned<5> rd;
@@ -80,7 +80,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for LD: (i64 (load (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
+        // CHECK-RV64-NEXT: Pattern for LD [ld]: (i64 (load (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
         LD {
             operands: {
                 unsigned<5> rd;
@@ -96,7 +96,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for LBU: (i64 (zextloadi8 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
+        // CHECK-RV64-NEXT: Pattern for LBU [lbu]: (i64 (zextloadi8 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
         LBU {
             operands: {
                 unsigned<5> rd;
@@ -112,7 +112,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for LHU: (i64 (zextloadi16 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
+        // CHECK-RV64-NEXT: Pattern for LHU [lhu]: (i64 (zextloadi16 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
         LHU {
             operands: {
                 unsigned<5> rd;
@@ -128,7 +128,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for LWU: (i64 (zextloadi32 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
+        // CHECK-RV64-NEXT: Pattern for LWU [lwu]: (i64 (zextloadi32 (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm))))))
         LWU {
             operands: {
                 unsigned<5> rd;
@@ -144,7 +144,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for SB: (truncstorei8 (XLenVT (i32 (trunc GPR:$rs2))), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm)))))
+        // CHECK-RV64-NEXT: Pattern for SB [sb]: (truncstorei8 (XLenVT (i32 (trunc GPR:$rs2))), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm)))))
         SB {
             operands: {
                 unsigned<5> rs1;
@@ -159,7 +159,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for SH: (truncstorei16 (XLenVT (i32 (trunc GPR:$rs2))), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm)))))
+        // CHECK-RV64-NEXT: Pattern for SH [sh]: (truncstorei16 (XLenVT (i32 (trunc GPR:$rs2))), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm)))))
         SH {
             operands: {
                 unsigned<5> rs1;
@@ -174,7 +174,7 @@ InstructionSet XExampleRV64 extends RISCVBase {
             }
         }
 
-        // CHECK-RV64-NEXT: Pattern for SW: (truncstorei32 (XLenVT (i32 (trunc GPR:$rs2))), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm)))))
+        // CHECK-RV64-NEXT: Pattern for SW [sw]: (truncstorei32 (XLenVT (i32 (trunc GPR:$rs2))), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 simm12:$imm)))))
         SW {
             operands: {
                 unsigned<5> rs1;

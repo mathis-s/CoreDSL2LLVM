@@ -55,6 +55,8 @@ static cl::opt<bool> SkipVerify("skip-verify",
                                 cl::cat(ToolOptions));
 static cl::opt<bool> PrintIR("print-ir", cl::desc("Print LLVM-IR module."),
                              cl::cat(ToolOptions));
+static cl::opt<bool> PrintMIR("print-mir", cl::desc("Print LLVM-MIR functions."),
+                             cl::cat(ToolOptions));
 static cl::opt<bool> NoExtend(
     "no-extend",
     cl::desc("Do not apply CDSL typing rules (Use C-like type inference)."),
@@ -128,15 +130,6 @@ int main(int argc, char **argv) {
     auto Mod = std::make_unique<Module>("mod", Ctx);
     auto Instrs = ParseCoreDSL2(Ts, (XLen == 64), Mod.get(), NoExtend);
 
-    if (irOut) {
-      std::string Str;
-      raw_string_ostream OS(Str);
-      OS << *Mod;
-      OS.flush();
-      irOut << Str << "\n";
-      irOut.close();
-    }
-
     if (!SkipVerify)
       if (verifyModule(*Mod, &errs()))
         return -1;
@@ -165,9 +158,14 @@ int main(int argc, char **argv) {
     PGArgsStruct Args{.Mattr = "",
                       .OptLevel = Opt,
                       .Predicates = Predicates,
-                      .Is64Bit = (XLen == 64)};
+                      .Is64Bit = (XLen == 64),
+                      .DumpMIR = PrintMIR.getValue()};
 
     optimizeBehavior(Mod.get(), Instrs, irOut, Args);
+
+    if (irOut)
+      irOut.close();
+
     if (PrintIR)
       llvm::outs() << *Mod << "\n";
     if (!SkipFmt)

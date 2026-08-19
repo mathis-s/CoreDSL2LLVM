@@ -2,7 +2,7 @@
 // RUN: pattern-gen %s -O 3 --no-extend --mattr=+m --riscv-xlen 64 | FileCheck --check-prefixes=CHECK-RV64,CHECK-RV64-NOEXTED -allow-unused-prefixes %s
 
 
-// CHECK-RV64: Pattern for LDR: (i64 (load (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 (shl (i64 GPR:$rs2), (i64 (i64 uimm5:$imm)))))))))
+// CHECK-RV64: Pattern for LDR [ldr]: (i64 (load (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 (shl (i64 GPR:$rs2), (i64 (i64 uimm5:$imm)))))))))
 LDR {
     encoding: 2'b0 :: imm[4:0] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
     assembly:"{name(rd)}, {imm} {name(rs2)}({name(rs1)})";
@@ -13,7 +13,7 @@ LDR {
     }
 }
 
-// CHECK-RV64: Pattern for STR: (store (XLenVT GPR:$rs3), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 (shl (i64 GPR:$rs2), (i64 (i64 uimm5:$imm))))))))
+// CHECK-RV64: Pattern for STR [str]: (store (XLenVT GPR:$rs3), (iPTR (ptradd (iPTR (iPTR GPR:$rs1)), (i64 (i64 (shl (i64 GPR:$rs2), (i64 (i64 uimm5:$imm))))))))
 STR {
     encoding: 2'b1 :: rs3[4:0] :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: imm[4:0] :: 7'b0000011;
     assembly:"{name(rs3)}, {imm} {name(rs2)}({name(rs1)})";
@@ -23,7 +23,7 @@ STR {
     }
 }
 
-// CHECK-RV64: Pattern for LOADMAC: (add GPR:$rd, (mul (i64 (load GPR:$rs2)), (i64 (load GPR:$rs1))))
+// CHECK-RV64: Pattern for LOADMAC [loadmac]: (add GPR:$rd, (mul (i64 (load GPR:$rs2)), (i64 (load GPR:$rs1))))
 LOADMAC {
     encoding: 7'd40 :: rs2[4:0] :: rs1[4:0] :: 3'b010 :: rd[4:0] :: 7'b0000011;
     assembly:"{name(rd)}, ({name(rs2)}), ({name(rs1)})";
