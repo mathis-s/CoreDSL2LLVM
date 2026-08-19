@@ -8,8 +8,10 @@ std::string EncodingToTablgen(CDSLInstr const& instr)
 
     uint8_t size = instr.size;
     std::string base = (size == 48 ? "RVInst48" : (size == 16 ? "RVInst16" : "RVInst"));
+    std::string LLVMInstr = instr.llvm_instr;
+    std::string InstNameO = LLVMInstr.empty() ? instr.name : LLVMInstr;
 
-    s << "class RVInst_" << instr.name << "<dag outs, dag ins>"
+    s << "class RVInst_" << InstNameO << "<dag outs, dag ins>"
       << " : " << base << "<outs, ins, \"" << instr.mnemonic << "\", \"" << instr.argString << "\", [], InstFormatOther> {\n";
 
     for (auto const& f : instr.fields)
